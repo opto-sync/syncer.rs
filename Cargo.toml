@@ -1,0 +1,43 @@
+[package]
+name = "syncer-rs"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "A Rust-native JSON reconciliation core for native, C ABI, and WebAssembly callers"
+repository = "https://github.com/opto-sync/syncer.rs"
+readme = "README.md"
+keywords = ["json", "merge", "sync", "ffi", "wasm"]
+categories = ["data-structures", "wasm", "api-bindings"]
+
+[lib]
+name = "syncer_rs"
+crate-type = ["rlib", "cdylib", "staticlib"]
+
+[features]
+default = []
+wasm = ["dep:serde-wasm-bindgen", "dep:wasm-bindgen"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = [
+    "preserve_order",
+    "unbounded_depth",
+    # correctly-rounded float parsing — required for byte-parity with yyjson
+    # (the default fast path is up to 1 ULP off, e.g. on "9e29")
+    "float_roundtrip",
+] }
+serde-wasm-bindgen = { version = "0.6", optional = true }
+wasm-bindgen = { version = "0.2", optional = true }
+
+[dev-dependencies]
+pretty_assertions = "1"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = "symbols"
+
+[package.metadata.wasm-pack.profile.release]
+# wasm-pack installations can bundle an older Binaryen than the Rust compiler
+# targets. The Rust release profile above still performs LTO and optimization.
+wasm-opt = false

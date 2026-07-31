@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  native:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy,rustfmt
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets --all-features -- -D warnings
+      - run: cargo test --all-targets
+      - run: cargo build --release
+      - name: C ABI smoke test
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror tests/c_abi_smoke.c \
+            -Iinclude -Ltarget/release -lsyncer_rs \
+            -o /tmp/syncer-rs-c-abi-smoke
+          LD_LIBRARY_PATH=target/release /tmp/syncer-rs-c-abi-smoke
+
+  wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - run: cargo build --release --target wasm32-unknown-unknown --features wasm
