@@ -15,8 +15,8 @@
 use std::io;
 
 use serde::Serialize;
-use serde_json::ser::{Formatter, Serializer};
 use serde_json::Value;
+use serde_json::ser::{Formatter, Serializer};
 
 /// Serializes a value to compact JSON with yyjson-compatible doubles.
 pub(crate) fn to_canonical_string(value: &Value) -> serde_json::Result<String> {
@@ -91,7 +91,7 @@ fn format_f64_yyjson(value: f64) -> String {
 #[cfg(test)]
 mod tests {
     use super::format_f64_yyjson;
-    use crate::{merge_json, MergeOptions};
+    use crate::{MergeOptions, merge_json};
 
     #[test]
     fn merge_output_is_yyjson_canonical() {
