@@ -1,0 +1,90 @@
+name: wasm browser conformance
+
+# Executes the WebAssembly merge surface in a real browser.
+#
+# `cargo build --target wasm32-unknown-unknown` only proves the crate compiles.
+# It does not instantiate the module, does not exercise the wasm-bindgen glue,
+# and cannot observe that a JavaScript caller's options object was interpreted
+# correctly. Everything reachable only from a JS host — the options contract,
+# `WebAssembly.instantiateStreaming` over a real HTTP origin, and int64 values
+# beyond Number.MAX_SAFE_INTEGER — is covered here.
+#
+# The same corpus (tests/wasm/cases.mjs) runs under Node and Chromium so the
+# two hosts cannot silently diverge.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  conformance:
+    name: node + chromium
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: tests/wasm/package-lock.json
+
+      - name: Install wasm-pack
+        run: cargo install --locked --version 0.13.1 wasm-pack
+
+      # `--target web` rather than `nodejs`, so the Node runner and the browser
+      # spec load byte-identical artifacts.
+      - name: Build the wasm package
+        run: wasm-pack build --release --target web --out-dir pkg-web -- --features wasm
+
+      - name: Install test dependencies
+        working-directory: tests/wasm
+        run: npm ci
+
+      - name: Run the corpus under Node
+        working-directory: tests/wasm
+        run: npm run test:node
+
+      - name: Install Chromium
+        working-directory: tests/wasm
+        run: npx playwright install --with-deps chromium
+
+      - name: Run the corpus in Chromium
+        working-directory: tests/wasm
+        run: npm run test:browser
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: playwright-report
+          path: |
+            tests/wasm/playwright-report/
+            tests/wasm/test-results/
+          retention-days: 7
+          if-no-files-found: ignore
