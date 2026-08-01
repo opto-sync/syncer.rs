@@ -82,7 +82,7 @@ wasm-pack build --release --target bundler -- --features wasm
 ```
 
 ```js
-import init, { mergeJsonWithOptions } from "./pkg/syncer_rs.js";
+import init, { mergeJson, mergeJsonWithOptions } from "./pkg/syncer_rs.js";
 
 await init();
 const merged = mergeJsonWithOptions(baseJson, incomingJson, {
@@ -95,6 +95,37 @@ const merged = mergeJsonWithOptions(baseJson, incomingJson, {
 
 Use `--target nodejs` instead of `bundler` for a CommonJS-oriented Node
 package, or `--target web` for direct browser module loading.
+
+### Options are camelCase, and unknown keys are rejected
+
+The options object accepts exactly these keys:
+
+| Key | Type | Default |
+|---|---|---|
+| `arrayStrategy` | `0..=4` | `0` (replace) |
+| `maxDepth` | integer, `0` = unlimited | `0` |
+| `resolveByTimestamp` | boolean | `false` |
+| `lwwKeys` | comma-separated string | `"updatedAt"` when resolving |
+| `fwwKeys` | comma-separated string | disabled |
+| `arrayMatchKeys` | comma-separated string | `"id"` |
+
+Anything else throws. This is deliberate: the Rust and C ABI surfaces name the
+same option `array_strategy`, and silently ignoring that spelling produced a
+**replace** merge with no diagnostic — a wrong document rather than an error.
+
+`options` may be omitted, `undefined`, or `null` to take the defaults:
+
+```js
+mergeJsonWithOptions(base, incoming);            // defaults
+mergeJsonWithOptions(base, incoming, undefined); // defaults
+mergeJsonWithOptions(base, incoming, {});        // defaults
+mergeJsonWithOptions(base, incoming, { array_strategy: 1 }); // throws
+```
+
+Both functions take and return JSON **strings**. Do not round-trip documents
+through `JSON.parse`/`JSON.stringify` on the way in or out: JavaScript numbers
+cannot represent an int64 HLC timestamp such as `1689464777831256277`, and the
+string boundary is what preserves it.
 
 ## PostgreSQL and Supabase
 
