@@ -238,15 +238,18 @@ export const cases = [
 ];
 
 /**
- * Runs the corpus against a bound wasm module and returns failures.
+ * Runs the corpus against a bound wasm module.
  *
- * `api` is `{ mergeJson, mergeJsonWithOptions }`. The runner is shared so the
- * Node and browser paths cannot diverge in how they interpret a case.
+ * `api` is `{ mergeJson, mergeJsonWithOptions }`. Returns one plain,
+ * structured-cloneable result per case so the browser harness can hand the
+ * outcome back to Playwright without losing information.
+ *
+ * The runner is shared so the Node and browser paths cannot diverge in how
+ * they interpret a case — in particular, whether `options` was absent versus
+ * explicitly `undefined`, a distinction that does not survive serialization.
  */
-export function runCases(api) {
-  const failures = [];
-
-  for (const testCase of cases) {
+export function runCasesDetailed(api) {
+  return cases.map((testCase) => {
     const { name, base, incoming, expect, throws } = testCase;
     const usesOptions = 'options' in testCase;
 
@@ -262,19 +265,27 @@ export function runCases(api) {
 
     if (throws !== undefined) {
       if (thrown === undefined) {
-        failures.push(`${name}: expected a throw containing ${JSON.stringify(throws)}, got ${JSON.stringify(actual)}`);
-      } else if (!thrown.includes(throws)) {
-        failures.push(`${name}: expected message containing ${JSON.stringify(throws)}, got ${JSON.stringify(thrown)}`);
+        return { name, ok: false, detail: `expected a throw containing ${JSON.stringify(throws)}, got ${JSON.stringify(actual)}` };
       }
-      continue;
+      if (!thrown.includes(throws)) {
+        return { name, ok: false, detail: `expected message containing ${JSON.stringify(throws)}, got ${JSON.stringify(thrown)}` };
+      }
+      return { name, ok: true, detail: '' };
     }
 
     if (thrown !== undefined) {
-      failures.push(`${name}: unexpected throw ${JSON.stringify(thrown)}`);
-    } else if (actual !== expect) {
-      failures.push(`${name}: expected ${JSON.stringify(expect)}, got ${JSON.stringify(actual)}`);
+      return { name, ok: false, detail: `unexpected throw ${JSON.stringify(thrown)}` };
     }
-  }
+    if (actual !== expect) {
+      return { name, ok: false, detail: `expected ${JSON.stringify(expect)}, got ${JSON.stringify(actual)}` };
+    }
+    return { name, ok: true, detail: '' };
+  });
+}
 
-  return failures;
+/** Failure descriptions only, for the plain Node runner. */
+export function runCases(api) {
+  return runCasesDetailed(api)
+    .filter((result) => !result.ok)
+    .map((result) => `${result.name}: ${result.detail}`);
 }
