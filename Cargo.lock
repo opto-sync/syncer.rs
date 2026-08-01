@@ -222,6 +222,7 @@ dependencies = [
 name = "syncer-rs"
 version = "0.1.0"
 dependencies = [
+ "js-sys",
  "pretty_assertions",
  "serde",
  "serde-wasm-bindgen",
