@@ -28,6 +28,9 @@ serde_json = { version = "1", features = [
 ] }
 serde-wasm-bindgen = { version = "0.6", optional = true }
 wasm-bindgen = { version = "0.2", optional = true }
+# Used to enumerate the caller's option keys: `deny_unknown_fields` is not
+# honored by serde-wasm-bindgen's property-lookup struct deserializer.
+js-sys = { version = "0.3", optional = true }
 
 [dev-dependencies]
 pretty_assertions = "1"
