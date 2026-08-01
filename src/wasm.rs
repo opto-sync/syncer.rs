@@ -211,4 +211,27 @@ mod tests {
         assert!(parse(r#"{"arrayStrategy":"1"}"#).is_err());
         assert!(parse(r#"{"resolveByTimestamp":"yes"}"#).is_err());
     }
+
+    /// The wasm boundary rejects unknown keys against [`OPTION_KEYS`] rather
+    /// than via `deny_unknown_fields`, so the list has to be kept in sync by
+    /// hand. serde's own "expected one of ..." diagnostic is the source of
+    /// truth for what the struct actually accepts.
+    #[test]
+    fn option_keys_match_the_deserialized_fields() {
+        let error = serde_json::from_str::<WasmMergeOptions>(r#"{"__unknown__":1}"#)
+            .expect_err("deny_unknown_fields must reject this")
+            .to_string();
+
+        for key in super::OPTION_KEYS {
+            assert!(
+                error.contains(key),
+                "`{key}` is in OPTION_KEYS but is not a WasmMergeOptions field: {error}"
+            );
+        }
+        assert_eq!(
+            error.matches('`').count() / 2,
+            super::OPTION_KEYS.len() + 1, // the expected fields, plus `__unknown__`
+            "WasmMergeOptions has a field missing from OPTION_KEYS: {error}"
+        );
+    }
 }
