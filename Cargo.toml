@@ -15,7 +15,7 @@ crate-type = ["rlib", "cdylib", "staticlib"]
 
 [features]
 default = []
-wasm = ["dep:serde-wasm-bindgen", "dep:wasm-bindgen"]
+wasm = ["dep:serde-wasm-bindgen", "dep:wasm-bindgen", "dep:js-sys"]
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
