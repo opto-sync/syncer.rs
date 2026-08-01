@@ -1,0 +1,14 @@
+{
+  "name": "syncer-rs-wasm-conformance",
+  "private": true,
+  "type": "module",
+  "description": "Browser and Node conformance suite for the syncer.rs WebAssembly surface",
+  "scripts": {
+    "test:node": "node run-node.mjs",
+    "test:browser": "playwright test --config playwright.config.mjs",
+    "test": "npm run test:node && npm run test:browser"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1"
+  }
+}
