@@ -55,7 +55,7 @@ jobs:
           cache-dependency-path: tests/wasm/package-lock.json
 
       - name: Install wasm-pack
-        run: cargo install --locked --version 0.13.1 wasm-pack
+        run: cargo install --locked --version 0.15.0 wasm-pack
 
       # `--target web` rather than `nodejs`, so the Node runner and the browser
       # spec load byte-identical artifacts.
