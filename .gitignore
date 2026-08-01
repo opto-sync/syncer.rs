@@ -1,6 +1,13 @@
 /target/
 /pkg/
+# wasm-pack --target web output consumed by the Node and Chromium conformance
+# suites; rebuilt by `make pkg-web`.
+/pkg-web/
 *.dylib
 *.so
 *.dll
 
+# Browser conformance suite
+/tests/wasm/node_modules/
+/tests/wasm/playwright-report/
+/tests/wasm/test-results/
