@@ -3,6 +3,23 @@ use wasm_bindgen::prelude::*;
 
 use crate::{ArrayMergeStrategy, MergeOptions, merge_json};
 
+/// Every accepted key on the JavaScript options object.
+///
+/// `deny_unknown_fields` alone is **not** sufficient here: `serde_wasm_bindgen`
+/// resolves struct fields by direct property lookup, so unknown keys never
+/// reach the generated visitor and the attribute silently has no effect at the
+/// wasm boundary. The keys are therefore checked explicitly against this list.
+/// It must stay in sync with the `WasmMergeOptions` fields below; the
+/// `option_keys_match_the_deserialized_fields` test enforces that.
+const OPTION_KEYS: [&str; 6] = [
+    "arrayStrategy",
+    "maxDepth",
+    "resolveByTimestamp",
+    "lwwKeys",
+    "fwwKeys",
+    "arrayMatchKeys",
+];
+
 /// The JavaScript-facing merge options object.
 ///
 /// Field names are the camelCase forms of [`MergeOptions`]. Unknown keys are
