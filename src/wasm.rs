@@ -69,10 +69,34 @@ fn read_options(options: JsValue) -> Result<MergeOptions, JsError> {
     let parsed: WasmMergeOptions = if options.is_undefined() || options.is_null() {
         WasmMergeOptions::default()
     } else {
+        reject_unknown_keys(&options)?;
         serde_wasm_bindgen::from_value(options)
             .map_err(|error| JsError::new(&format!("invalid merge options: {error}")))?
     };
     MergeOptions::try_from(parsed).map_err(|error| JsError::new(&error))
+}
+
+/// Fails on any own enumerable key that is not a documented merge option.
+///
+/// Non-object values are left alone so that `serde_wasm_bindgen` produces the
+/// more precise "invalid type" diagnostic for them.
+fn reject_unknown_keys(options: &JsValue) -> Result<(), JsError> {
+    let Some(object) = options.dyn_ref::<js_sys::Object>() else {
+        return Ok(());
+    };
+    for key in js_sys::Object::keys(object).iter() {
+        let Some(key) = key.as_string() else {
+            continue;
+        };
+        if !OPTION_KEYS.contains(&key.as_str()) {
+            return Err(JsError::new(&format!(
+                "unknown merge option `{key}`; expected one of: {}. \
+                 Merge options use camelCase, unlike the Rust and C ABI field names.",
+                OPTION_KEYS.join(", ")
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// Default merge for Node and browser callers.
