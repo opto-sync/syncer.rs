@@ -141,8 +141,27 @@ without creating a SQL-only semantics fork. See
 cargo fmt --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all-targets
+cargo test --all-targets --features wasm   # src/wasm.rs is feature-gated
 cargo build --release --target wasm32-unknown-unknown --features wasm
 ```
+
+### Wasm host conformance
+
+Compiling for `wasm32-unknown-unknown` proves the crate builds; it does not
+instantiate the module or exercise the wasm-bindgen glue. The behavior a
+JavaScript caller actually observes is covered by one corpus,
+[`tests/wasm/cases.mjs`](tests/wasm/cases.mjs), executed in two hosts:
+
+```sh
+make test-wasm      # the corpus under Node
+make test-browser   # the same corpus in real Chromium, via Playwright
+make test-all       # cargo + Node + Chromium
+```
+
+Both hosts load the same `--target web` artifact, so Node passing while a
+browser fails is itself a detectable regression. Add cases to `cases.mjs`
+rather than to either runner. CI runs both in
+[`.github/workflows/wasm-browser.yml`](.github/workflows/wasm-browser.yml).
 
 To compare against the `syncer.c` differential corpus:
 
