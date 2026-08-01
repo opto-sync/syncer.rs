@@ -1,6 +1,6 @@
 [package]
 name = "syncer-rs"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 license = "MIT"
 description = "A Rust-native JSON reconciliation core for native, C ABI, and WebAssembly callers"
@@ -15,7 +15,7 @@ crate-type = ["rlib", "cdylib", "staticlib"]
 
 [features]
 default = []
-wasm = ["dep:serde-wasm-bindgen", "dep:wasm-bindgen"]
+wasm = ["dep:serde-wasm-bindgen", "dep:wasm-bindgen", "dep:js-sys"]
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
@@ -28,6 +28,9 @@ serde_json = { version = "1", features = [
 ] }
 serde-wasm-bindgen = { version = "0.6", optional = true }
 wasm-bindgen = { version = "0.2", optional = true }
+# Used to enumerate the caller's option keys: `deny_unknown_fields` is not
+# honored by serde-wasm-bindgen's property-lookup struct deserializer.
+js-sys = { version = "0.3", optional = true }
 
 [dev-dependencies]
 pretty_assertions = "1"

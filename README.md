@@ -82,7 +82,7 @@ wasm-pack build --release --target bundler -- --features wasm
 ```
 
 ```js
-import init, { mergeJsonWithOptions } from "./pkg/syncer_rs.js";
+import init, { mergeJson, mergeJsonWithOptions } from "./pkg/syncer_rs.js";
 
 await init();
 const merged = mergeJsonWithOptions(baseJson, incomingJson, {
@@ -95,6 +95,37 @@ const merged = mergeJsonWithOptions(baseJson, incomingJson, {
 
 Use `--target nodejs` instead of `bundler` for a CommonJS-oriented Node
 package, or `--target web` for direct browser module loading.
+
+### Options are camelCase, and unknown keys are rejected
+
+The options object accepts exactly these keys:
+
+| Key | Type | Default |
+|---|---|---|
+| `arrayStrategy` | `0..=4` | `0` (replace) |
+| `maxDepth` | integer, `0` = unlimited | `0` |
+| `resolveByTimestamp` | boolean | `false` |
+| `lwwKeys` | comma-separated string | `"updatedAt"` when resolving |
+| `fwwKeys` | comma-separated string | disabled |
+| `arrayMatchKeys` | comma-separated string | `"id"` |
+
+Anything else throws. This is deliberate: the Rust and C ABI surfaces name the
+same option `array_strategy`, and silently ignoring that spelling produced a
+**replace** merge with no diagnostic — a wrong document rather than an error.
+
+`options` may be omitted, `undefined`, or `null` to take the defaults:
+
+```js
+mergeJsonWithOptions(base, incoming);            // defaults
+mergeJsonWithOptions(base, incoming, undefined); // defaults
+mergeJsonWithOptions(base, incoming, {});        // defaults
+mergeJsonWithOptions(base, incoming, { array_strategy: 1 }); // throws
+```
+
+Both functions take and return JSON **strings**. Do not round-trip documents
+through `JSON.parse`/`JSON.stringify` on the way in or out: JavaScript numbers
+cannot represent an int64 HLC timestamp such as `1689464777831256277`, and the
+string boundary is what preserves it.
 
 ## PostgreSQL and Supabase
 
@@ -110,8 +141,27 @@ without creating a SQL-only semantics fork. See
 cargo fmt --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all-targets
+cargo test --all-targets --features wasm   # src/wasm.rs is feature-gated
 cargo build --release --target wasm32-unknown-unknown --features wasm
 ```
+
+### Wasm host conformance
+
+Compiling for `wasm32-unknown-unknown` proves the crate builds; it does not
+instantiate the module or exercise the wasm-bindgen glue. The behavior a
+JavaScript caller actually observes is covered by one corpus,
+[`tests/wasm/cases.mjs`](tests/wasm/cases.mjs), executed in two hosts:
+
+```sh
+make test-wasm      # the corpus under Node
+make test-browser   # the same corpus in real Chromium, via Playwright
+make test-all       # cargo + Node + Chromium
+```
+
+Both hosts load the same `--target web` artifact, so Node passing while a
+browser fails is itself a detectable regression. Add cases to `cases.mjs`
+rather than to either runner. CI runs both in
+[`.github/workflows/wasm-browser.yml`](.github/workflows/wasm-browser.yml).
 
 To compare against the `syncer.c` differential corpus:
 
