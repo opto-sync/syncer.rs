@@ -121,10 +121,12 @@ pub fn merge_json_with_options_wasm(
 
 /// The option-name and option-value contract, exercised without a JS runtime.
 ///
-/// `serde_wasm_bindgen` and `serde_json` drive the same generated `Deserialize`
-/// impl, so the accepted key spelling and the unknown-key rejection are the
-/// same facts here as in a browser. The end-to-end browser behavior is covered
-/// by `tests/browser/` and the Node harness in `tests/wasm_node.mjs`.
+/// These cover the value conversion and the field spelling accepted by the
+/// generated `Deserialize` impl. They deliberately do **not** stand in for the
+/// unknown-key rejection: that is enforced by [`reject_unknown_keys`] against
+/// a live `JsValue` and is only observable in a real host, so it is covered by
+/// the corpus in `tests/wasm/cases.mjs`, which runs under both Node
+/// (`tests/wasm/run-node.mjs`) and Chromium (`tests/wasm/browser.spec.mjs`).
 #[cfg(test)]
 mod tests {
     use super::WasmMergeOptions;
