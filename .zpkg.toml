@@ -21,14 +21,6 @@ exclude = [".env", ".env.*", ".direnv/**", ".zed/**", ".zed-pack/**", "target/**
 registry = "crates-io"
 package = "syncer-rs"
 
-[targets.repository]
-dir = "."
-name = "syncer-rs-repository"
-
-[targets.rust]
-dir = "."
-adapter = "rust"
-
 [install]
 adapter = "rust"
 
