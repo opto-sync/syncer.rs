@@ -1,0 +1,28 @@
+[package]
+org = "opto-sync"
+name = "syncer-rs"
+version = "0.1.0"
+description = "Rust-native JSON reconciliation core for native, C ABI, static library, and WebAssembly callers"
+license = "MIT"
+keywords = ["sync", "json", "merge", "ffi", "wasm"]
+language = "rust"
+
+[package.repository]
+vcs = "git"
+url = "https://github.com/opto-sync/syncer.rs"
+
+[publish]
+include_readme = true
+tag_format = "v{version}"
+smoke_test = "cargo test --manifest-path \"$ZED_PKG_TEST_TARGET/Cargo.toml\" --locked"
+exclude = [".env", ".env.*", ".direnv/**", ".zed/**", ".zed-pack/**", "target/**", "tmp/**", "**/*.log", ".DS_Store"]
+
+[publish.native]
+registry = "crates-io"
+package = "syncer-rs"
+
+[install]
+adapter = "rust"
+
+[scripts]
+test = "cargo test --all-targets --all-features --locked"
