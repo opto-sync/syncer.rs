@@ -130,11 +130,7 @@ impl VersionVector {
     /// Observes an explicit positive counter, retaining the larger value.
     ///
     /// Replaying an older observation is therefore idempotent.
-    pub fn observe(
-        &mut self,
-        replica_id: &str,
-        counter: u64,
-    ) -> Result<bool, VersionVectorError> {
+    pub fn observe(&mut self, replica_id: &str, counter: u64) -> Result<bool, VersionVectorError> {
         validate_replica_id(replica_id)?;
         if counter == 0 {
             return Err(VersionVectorError::ZeroCounter(replica_id.to_owned()));
@@ -452,9 +448,9 @@ impl From<VersionVectorError> for CausalEnvelopeError {
 fn validate_replica_id(replica_id: &str) -> Result<(), VersionVectorError> {
     let valid = !replica_id.is_empty()
         && replica_id.len() <= MAX_REPLICA_ID_BYTES
-        && replica_id.bytes().all(|byte| {
-            byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b':' | b'-')
-        });
+        && replica_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b':' | b'-'));
     if valid {
         Ok(())
     } else {
@@ -479,9 +475,7 @@ fn validate_mutation_id(mutation_id: &str) -> Result<(), CausalEnvelopeError> {
 }
 
 fn valid_external_id(value: &str, maximum_bytes: usize) -> bool {
-    !value.trim().is_empty()
-        && value.len() <= maximum_bytes
-        && !value.chars().any(char::is_control)
+    !value.trim().is_empty() && value.len() <= maximum_bytes && !value.chars().any(char::is_control)
 }
 
 #[cfg(test)]
