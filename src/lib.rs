@@ -6,6 +6,7 @@
 //! global merge state in the core.
 
 mod canonical;
+pub mod causal;
 mod core;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -14,6 +15,10 @@ pub mod ffi;
 #[cfg(feature = "wasm")]
 mod wasm;
 
+pub use crate::causal::{
+    CAUSAL_SCHEMA_VERSION, CausalDisposition, CausalEnvelope, CausalEnvelopeError, CausalOperation,
+    MAX_CAUSAL_REPLICAS, VersionRelation, VersionVector, VersionVectorError,
+};
 pub use crate::core::{
     ArrayMergeStrategy, MergeError, MergeOptions, merge_json, merge_optional_json, merge_values,
 };
