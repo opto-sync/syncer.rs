@@ -1,33 +1,131 @@
 name: CI
 
+# Native, C ABI, and WebAssembly build/test for the reconciliation core.
+#
+# Executing the wasm surface in a real browser lives in wasm-browser.yml, so a
+# Chromium regression stays distinguishable from a compile failure at a glance.
+
 on:
   push:
+    branches: [main]
   pull_request:
+  workflow_dispatch:
+
+# Cancel superseded runs on the same ref.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least privilege: nothing in this workflow writes to the repository.
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
 
 jobs:
   native:
-    runs-on: ubuntu-latest
+    name: native (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
         with:
           components: clippy,rustfmt
-      - run: cargo fmt --check
-      - run: cargo clippy --all-targets --all-features -- -D warnings
-      - run: cargo test --all-targets
-      - run: cargo build --release
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+
+      - name: Check formatting
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo fmt --check
+
+      - name: Lint
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Test (default features)
+        run: cargo test --all-targets
+
+      # `--features wasm` matters: src/wasm.rs is feature-gated, so without it
+      # the option-parsing contract tests are never compiled, let alone run.
+      - name: Test (wasm feature)
+        run: cargo test --all-targets --features wasm
+
+      - name: Build release
+        run: cargo build --release
+
+      # The C ABI is consumed by Dart/Flutter FFI, so the smoke test runs on
+      # every Unix host. Linux resolves the shared object through
+      # LD_LIBRARY_PATH and macOS through DYLD_LIBRARY_PATH; setting both keeps
+      # this one step portable.
+      #
+      # Windows is intentionally excluded: linking the cdylib import library
+      # under MSVC needs its own verified recipe, and shipping an unvalidated
+      # one would make this job fail for reasons unrelated to a change. The
+      # Rust build and test steps above still cover Windows.
       - name: C ABI smoke test
+        if: runner.os != 'Windows'
+        shell: bash
         run: |
+          set -euo pipefail
           cc -std=c11 -Wall -Wextra -Werror tests/c_abi_smoke.c \
             -Iinclude -Ltarget/release -lsyncer_rs \
-            -o /tmp/syncer-rs-c-abi-smoke
-          LD_LIBRARY_PATH=target/release /tmp/syncer-rs-c-abi-smoke
+            -o "${RUNNER_TEMP}/syncer-rs-c-abi-smoke"
+          LD_LIBRARY_PATH=target/release \
+          DYLD_LIBRARY_PATH=target/release \
+            "${RUNNER_TEMP}/syncer-rs-c-abi-smoke"
 
   wasm:
+    name: wasm build
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
         with:
           targets: wasm32-unknown-unknown
-      - run: cargo build --release --target wasm32-unknown-unknown --features wasm
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+
+      - name: Build wasm32
+        run: cargo build --release --target wasm32-unknown-unknown --features wasm
+
+  audit:
+    name: dependency advisories
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+
+      # Version-pinned so a new cargo-audit release cannot change the verdict
+      # for an unrelated pull request.
+      - name: Install cargo-audit
+        run: cargo install --locked --version 0.22.2 cargo-audit
+
+      - name: Audit dependencies
+        run: cargo audit --deny warnings

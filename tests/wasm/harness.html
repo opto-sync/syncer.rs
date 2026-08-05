@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>syncer.rs wasm conformance harness</title>
+  </head>
+  <body>
+    <h1>syncer.rs wasm conformance harness</h1>
+    <p id="status">loading…</p>
+    <pre id="output"></pre>
+
+    <script type="module">
+      // Real browser instantiation: the glue fetches and compiles
+      // syncer_rs_bg.wasm over HTTP exactly as a page consumer would. The
+      // corpus module below is the same file the Node runner imports.
+      import init, { mergeJson, mergeJsonWithOptions } from '/pkg-web/syncer_rs.js';
+      import { cases, runCasesDetailed } from './cases.mjs';
+
+      const status = document.getElementById('status');
+      const output = document.getElementById('output');
+
+      try {
+        await init();
+
+        const results = runCasesDetailed({ mergeJson, mergeJsonWithOptions });
+        const failed = results.filter((result) => !result.ok);
+
+        // Playwright reads these; the visible text is for humans debugging a
+        // failure with `--headed`.
+        window.__syncerResults = results;
+        window.__syncerError = null;
+
+        status.textContent = failed.length
+          ? `${failed.length} of ${cases.length} cases FAILED`
+          : `${cases.length} cases passed`;
+        output.textContent = failed.length
+          ? failed.map((result) => `✗ ${result.name}\n    ${result.detail}`).join('\n')
+          : results.map((result) => `✓ ${result.name}`).join('\n');
+      } catch (error) {
+        // Surface instantiation failures (bad MIME type, CSP, missing import
+        // object) rather than hanging until the Playwright timeout.
+        window.__syncerResults = null;
+        window.__syncerError = String(error?.stack ?? error?.message ?? error);
+        status.textContent = 'harness failed to initialize';
+        output.textContent = window.__syncerError;
+      } finally {
+        window.__syncerDone = true;
+      }
+    </script>
+  </body>
+</html>
