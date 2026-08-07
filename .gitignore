@@ -11,3 +11,7 @@
 /tests/wasm/node_modules/
 /tests/wasm/playwright-report/
 /tests/wasm/test-results/
+tmp
+temp
+tmp/worktrees
+temp/worktrees
