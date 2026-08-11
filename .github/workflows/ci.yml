@@ -48,21 +48,21 @@ jobs:
 
       - name: Check formatting
         if: matrix.os == 'ubuntu-latest'
-        run: cargo fmt --check
+        run: cargo fmt --all -- --check
 
       - name: Lint
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: cargo clippy --locked --all-targets --all-features -- -D warnings
 
       - name: Test (default features)
-        run: cargo test --all-targets
+        run: cargo test --locked --all-targets
 
       # `--features wasm` matters: src/wasm.rs is feature-gated, so without it
       # the option-parsing contract tests are never compiled, let alone run.
       - name: Test (wasm feature)
-        run: cargo test --all-targets --features wasm
+        run: cargo test --locked --all-targets --features wasm
 
       - name: Build release
-        run: cargo build --release
+        run: cargo build --locked --release
 
       # The C ABI is consumed by Dart/Flutter FFI, so the smoke test runs on
       # every Unix host. Linux resolves the shared object through
@@ -104,7 +104,7 @@ jobs:
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
       - name: Build wasm32
-        run: cargo build --release --target wasm32-unknown-unknown --features wasm
+        run: cargo build --locked --release --target wasm32-unknown-unknown --features wasm
 
   audit:
     name: dependency advisories

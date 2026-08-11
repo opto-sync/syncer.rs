@@ -140,6 +140,13 @@ export const cases = [
     options: { maxDepth: 2 },
     expect: '{"a":{"b":{"incoming":true,"same":"new"}}}',
   },
+  {
+    name: 'detectCircularRefs is accepted and inert for owned JSON trees',
+    base: '{"nested":{"left":true}}',
+    incoming: '{"nested":{"right":true}}',
+    options: { detectCircularRefs: true },
+    expect: '{"nested":{"left":true,"right":true}}',
+  },
 
   // ---- cross-engine byte parity -------------------------------------------
   // The canonical writer must match the C core's yyjson output exactly, or
@@ -214,6 +221,13 @@ export const cases = [
     base: '{}',
     incoming: '{}',
     options: { arrayStrategy: '1' },
+    throws: 'invalid merge options',
+  },
+  {
+    name: 'a wrongly typed detectCircularRefs flag is an error',
+    base: '{}',
+    incoming: '{}',
+    options: { detectCircularRefs: 'yes' },
     throws: 'invalid merge options',
   },
 

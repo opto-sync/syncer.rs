@@ -23,6 +23,7 @@ The extension wrapper serializes each `jsonb` input once, calls
 {
   "arrayStrategy": 4,
   "resolveByTimestamp": true,
+  "detectCircularRefs": false,
   "lwwKeys": "updatedAt,syncedAt,#/_sync/updatedAt",
   "fwwKeys": null,
   "arrayMatchKeys": "id",
@@ -67,6 +68,7 @@ begin
     jsonb_build_object(
       'arrayStrategy', 4,
       'resolveByTimestamp', true,
+      'detectCircularRefs', false,
       'lwwKeys', 'updatedAt,syncedAt,#/_sync/updatedAt',
       'arrayMatchKeys', 'id'
     )
@@ -98,7 +100,7 @@ begin
   new.data := syncer_merge_jsonb(
     old.data,
     new.data,
-    '{"arrayStrategy":4,"resolveByTimestamp":true,"lwwKeys":"updatedAt,syncedAt","arrayMatchKeys":"id"}'::jsonb
+    '{"arrayStrategy":4,"resolveByTimestamp":true,"detectCircularRefs":false,"lwwKeys":"updatedAt,syncedAt","arrayMatchKeys":"id"}'::jsonb
   );
   return new;
 end;
@@ -119,4 +121,3 @@ Managed database plans vary in which native PostgreSQL extensions they permit.
 Where the Rust extension cannot be installed, keep the SQL contract but perform
 the same atomic read/merge/compare-and-set loop in a trusted server or Supabase
 Edge Function. Do not replace the native core with a partial PL/pgSQL merge.
-

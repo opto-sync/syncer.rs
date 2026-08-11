@@ -34,6 +34,7 @@ fn run() -> Result<(), String> {
         array_strategy: ArrayMergeStrategy::MergeByKey,
         max_depth: 0,
         resolve_by_timestamp: true,
+        detect_circular_refs: false,
         lww_keys: Some("updatedAt,syncedAt,#/_sync/updatedAt".to_owned()),
         fww_keys: Some("createdAt".to_owned()),
         array_match_keys: Some("id".to_owned()),

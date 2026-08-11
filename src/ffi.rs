@@ -7,7 +7,7 @@ use std::ptr;
 use crate::{ArrayMergeStrategy, MergeError, MergeOptions, VERSION, merge_optional_json};
 
 /// Current layout version of [`SyncerRsOptions`].
-pub const SYNCER_RS_ABI_VERSION: u32 = 1;
+pub const SYNCER_RS_ABI_VERSION: u32 = 2;
 
 /// C-compatible options. Keep this synchronized with `include/syncer_rs.h`.
 #[derive(Debug)]
@@ -17,6 +17,7 @@ pub struct SyncerRsOptions {
     pub array_strategy: i32,
     pub max_depth: u32,
     pub resolve_by_timestamp: bool,
+    pub detect_circular_refs: bool,
     pub lww_keys: *const c_char,
     pub fww_keys: *const c_char,
     pub array_match_keys: *const c_char,
@@ -29,6 +30,7 @@ impl Default for SyncerRsOptions {
             array_strategy: ArrayMergeStrategy::Replace as i32,
             max_depth: 0,
             resolve_by_timestamp: false,
+            detect_circular_refs: false,
             lww_keys: ptr::null(),
             fww_keys: ptr::null(),
             array_match_keys: ptr::null(),
@@ -114,19 +116,29 @@ unsafe fn options_from_ffi(pointer: *const SyncerRsOptions) -> Result<MergeOptio
         return Ok(MergeOptions::default());
     }
 
-    // SAFETY: The caller promises a properly aligned SyncerRsOptions.
-    let options = unsafe { &*pointer };
-    if options.abi_version != SYNCER_RS_ABI_VERSION {
+    // Read only the stable integer prefix before interpreting the complete
+    // structure. ABI v1 used the byte now occupied by detect_circular_refs as
+    // padding, so constructing a v2 Rust reference first could inspect an
+    // uninitialized/invalid bool before we had a chance to reject the version.
+    // SAFETY: Every supported options structure starts with a readable u32 ABI
+    // discriminator. read_unaligned also avoids relying on foreign alignment.
+    let abi_version = unsafe { ptr::read_unaligned(pointer.cast::<u32>()) };
+    if abi_version != SYNCER_RS_ABI_VERSION {
         return Err(MergeError::InvalidOptions(format!(
             "ABI version {} is unsupported; expected {}",
-            options.abi_version, SYNCER_RS_ABI_VERSION
+            abi_version, SYNCER_RS_ABI_VERSION
         )));
     }
+
+    // SAFETY: The accepted v2 discriminator promises a fully initialized v2
+    // SyncerRsOptions with valid field representations.
+    let options = unsafe { &*pointer };
 
     Ok(MergeOptions {
         array_strategy: ArrayMergeStrategy::try_from(options.array_strategy)?,
         max_depth: options.max_depth,
         resolve_by_timestamp: options.resolve_by_timestamp,
+        detect_circular_refs: options.detect_circular_refs,
         // SAFETY: Optional strings follow the same C string contract.
         lww_keys: unsafe { optional_string(options.lww_keys) }
             .map_err(|_| MergeError::InvalidOptions("lww_keys is not UTF-8".to_owned()))?,

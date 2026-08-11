@@ -19,10 +19,11 @@ pub const MERGE_OPTIONS_SCHEMA_ID: &str = "https://opto-sync.dev/schema/merge-op
 pub const MERGE_OPTIONS_JSON_SCHEMA: &str = include_str!("../schema/merge-options.schema.json");
 
 /// Canonical option keys shared by the JSON and WebAssembly boundaries.
-pub const MERGE_OPTION_KEYS: [&str; 6] = [
+pub const MERGE_OPTION_KEYS: [&str; 7] = [
     "arrayStrategy",
     "maxDepth",
     "resolveByTimestamp",
+    "detectCircularRefs",
     "lwwKeys",
     "fwwKeys",
     "arrayMatchKeys",
@@ -46,6 +47,8 @@ pub struct CanonicalMergeOptions {
     pub max_depth: u32,
     /// Whether timestamp selectors may veto an incoming object.
     pub resolve_by_timestamp: bool,
+    /// Cross-engine compatibility flag; inert for owned Rust JSON trees.
+    pub detect_circular_refs: bool,
     /// Comma-separated last-write-wins selectors.
     pub lww_keys: Option<String>,
     /// Comma-separated first-write-wins selectors.
@@ -63,6 +66,7 @@ impl TryFrom<CanonicalMergeOptions> for MergeOptions {
             array_strategy,
             max_depth: options.max_depth,
             resolve_by_timestamp: options.resolve_by_timestamp,
+            detect_circular_refs: options.detect_circular_refs,
             lww_keys: options.lww_keys,
             fww_keys: options.fww_keys,
             array_match_keys: options.array_match_keys,
@@ -76,6 +80,7 @@ impl From<&MergeOptions> for CanonicalMergeOptions {
             array_strategy: options.array_strategy as i32,
             max_depth: options.max_depth,
             resolve_by_timestamp: options.resolve_by_timestamp,
+            detect_circular_refs: options.detect_circular_refs,
             lww_keys: options.lww_keys.clone(),
             fww_keys: options.fww_keys.clone(),
             array_match_keys: options.array_match_keys.clone(),
@@ -253,13 +258,14 @@ mod tests {
         );
 
         let options = parse_merge_options_json(
-            r#"{"arrayStrategy":4,"maxDepth":3,"resolveByTimestamp":true,
+            r#"{"arrayStrategy":4,"maxDepth":3,"resolveByTimestamp":true,"detectCircularRefs":true,
                 "lwwKeys":"updatedAt","fwwKeys":"createdAt","arrayMatchKeys":"uuid,id"}"#,
         )
         .expect("complete canonical options are valid");
         assert_eq!(options.array_strategy, ArrayMergeStrategy::MergeByKey);
         assert_eq!(options.max_depth, 3);
         assert!(options.resolve_by_timestamp);
+        assert!(options.detect_circular_refs);
         assert_eq!(options.lww_keys.as_deref(), Some("updatedAt"));
         assert_eq!(options.fww_keys.as_deref(), Some("createdAt"));
         assert_eq!(options.array_match_keys.as_deref(), Some("uuid,id"));
@@ -286,6 +292,7 @@ mod tests {
             r#"{"maxDepth":4294967296}"#,
             r#"{"maxDepth":1.5}"#,
             r#"{"resolveByTimestamp":"yes"}"#,
+            r#"{"detectCircularRefs":"yes"}"#,
             "null",
             "[]",
         ] {
@@ -301,11 +308,13 @@ mod tests {
         let defaults = serde_json::to_value(CanonicalMergeOptions::default())
             .expect("default canonical options must serialize");
         assert_eq!(defaults["arrayStrategy"], 0);
+        assert_eq!(defaults["detectCircularRefs"], false);
 
         let options = MergeOptions {
             array_strategy: ArrayMergeStrategy::MergeByIndex,
             max_depth: 2,
             resolve_by_timestamp: true,
+            detect_circular_refs: true,
             lww_keys: Some("updatedAt".to_owned()),
             fww_keys: None,
             array_match_keys: Some("id".to_owned()),
@@ -315,6 +324,7 @@ mod tests {
         assert_eq!(wire["arrayStrategy"], 3);
         assert_eq!(wire["maxDepth"], 2);
         assert_eq!(wire["resolveByTimestamp"], true);
+        assert_eq!(wire["detectCircularRefs"], true);
         assert_eq!(wire["fwwKeys"], Value::Null);
     }
 

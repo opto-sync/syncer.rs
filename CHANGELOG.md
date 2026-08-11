@@ -3,7 +3,7 @@
 All notable changes to `syncer-rs`. Versions follow the repository convention
 in `AGENTS.md`: while the crate is `0.x`, a breaking change takes a minor bump.
 
-## 0.2.1
+## 0.3.0
 
 ### Added
 
@@ -13,19 +13,32 @@ in `AGENTS.md`: while the crate is `0.x`, a breaking change takes a minor bump.
 - Injection-based `MergeObservationSink`, observed merge entry points, stable
   error codes, and a payload-safe observation schema for Ores structured
   logging adapters.
+- Cross-engine `detectCircularRefs` option. It is intentionally inert for
+  owned `serde_json` trees, which cannot contain pointer cycles, but is carried
+  through JSON, Wasm, observation, and C ABI surfaces for contract parity.
 
 ### Changed
 
 - The WebAssembly options boundary now reuses the same canonical Rust type and
   option-key list as the JSON validator, removing a duplicate contract that
   could drift.
-- Cargo and Zed package versions are aligned at `0.2.1`.
+- Cargo and Zed package versions are aligned at `0.3.0`.
+- The C ABI is version 2 because the options structure adds
+  `detect_circular_refs`.
+
+### Migration
+
+- Rust callers using exhaustive `MergeOptions` literals must add
+  `detect_circular_refs: false` or use `..MergeOptions::default()`.
+- C and FFI consumers must rebuild against ABI v2. Explicit ABI v1 option
+  structures are rejected rather than read with an ambiguous layout.
+- JSON and JavaScript callers may pass `detectCircularRefs`; non-boolean values
+  remain invalid.
 
 ### Packaging
 
-- The Zed manifest declares `ores-otel/ores-interfaces` and
-  `oresoftware/next-loggers` using their canonical polyglot package
-  coordinates. No unverified native-registry dependency is introduced.
+- The intended Ores Zed coordinates remain documented but undeclared until
+  immutable public releases and a clean frozen install produce a real lock.
 
 ## 0.2.0
 

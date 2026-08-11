@@ -60,13 +60,15 @@ Call `merge_values` when the backend already has `serde_json::Value` instances.
 Build the dynamic library:
 
 ```sh
-cargo build --release
+cargo build --release --locked
 ```
 
 The public header is `include/syncer_rs.h`. Flutter bindings call
 `syncer_rs_merge_json` or `syncer_rs_merge_json_ex`, convert the returned UTF-8
 string, and always release it with `syncer_rs_free`. A null result indicates
-invalid JSON or options.
+invalid JSON or options. Consumers must initialize the options structure with
+`syncer_rs_default_options()` and compile against ABI v2; an explicit ABI v1
+structure is rejected before the new boolean field is read.
 
 The release library is:
 
@@ -78,7 +80,7 @@ The release library is:
 ## Node and browser Wasm
 
 ```sh
-wasm-pack build --release --target bundler -- --features wasm
+wasm-pack build --release --target bundler -- --locked --features wasm
 ```
 
 ```js
@@ -105,6 +107,7 @@ The options object accepts exactly these keys:
 | `arrayStrategy` | `0..=4` | `0` (replace) |
 | `maxDepth` | integer, `0` = unlimited | `0` |
 | `resolveByTimestamp` | boolean | `false` |
+| `detectCircularRefs` | boolean | `false` (accepted; inert for owned Rust JSON trees) |
 | `lwwKeys` | comma-separated string | `"updatedAt"` when resolving |
 | `fwwKeys` | comma-separated string | disabled |
 | `arrayMatchKeys` | comma-separated string | `"id"` |
@@ -162,24 +165,26 @@ OpenTelemetry provider. `merge_json_observed` and
 attempt. Documents, identity values, selectors, and request context are never
 placed in that event.
 
-Applications adapt the event to the Rust target of
-`oresoftware/next-loggers`; that logger attaches its current Ores
-`RequestContext`/`LogContext`. A broken sink is fail-open and cannot change the
-merge result. The event wire contract is
+Applications may adapt the event to the Rust target of
+`oresoftware/next-loggers`, allowing that application-owned logger to attach
+its current Ores `RequestContext`/`LogContext`. A broken sink is fail-open and
+cannot change the merge result. The event wire contract is
 [`schema/merge-observation.schema.json`](schema/merge-observation.schema.json)
 and is embedded as `MERGE_OBSERVATION_JSON_SCHEMA`.
 
-The Zed manifest declares the shared integration boundaries using their
-canonical package coordinates:
+The intended shared integration boundaries use these canonical Zed package
+coordinates:
 
 - [`ores-otel/ores-interfaces`](https://github.com/ores-otel/ores-interfaces)
   `^0.1.0`;
 - `oresoftware/next-loggers` `^0.1.0`, published from
   [`ores-otel/ores.otel.log`](https://github.com/ores-otel/ores.otel.log).
 
-These remain Zed dependencies rather than guessed Cargo registry crates. This
-keeps Rust, Dart, and TypeScript consumers on the same polyglot source packages
-and lets each consumer select the appropriate native target.
+Neither coordinate currently has the immutable public `v0.1.0` release needed
+for a frozen install. The Zed manifest therefore declares no Ores dependency
+yet; adding an unresolved coordinate or a locally seeded registry would create
+false release provenance. Once those releases exist, the resolver-produced
+lock can make this integration reproducible across consumers.
 
 ## PostgreSQL and Supabase
 
@@ -193,10 +198,10 @@ without creating a SQL-only semantics fork. See
 
 ```sh
 cargo fmt --check
-cargo clippy --all-targets --all-features -- -D warnings
-cargo test --all-targets
-cargo test --all-targets --features wasm   # src/wasm.rs is feature-gated
-cargo build --release --target wasm32-unknown-unknown --features wasm
+cargo clippy --locked --all-targets --all-features -- -D warnings
+cargo test --locked --all-targets
+cargo test --locked --all-targets --features wasm   # src/wasm.rs is feature-gated
+cargo build --locked --release --target wasm32-unknown-unknown --features wasm
 ```
 
 ### Wasm host conformance
@@ -220,7 +225,7 @@ rather than to either runner. CI runs both in
 To compare against the `syncer.c` differential corpus:
 
 ```sh
-cargo run --release --example jsonl_runner -- \
+cargo run --locked --release --example jsonl_runner -- \
   ../syncer.c/test-differential/corpus.jsonl \
   /tmp/results-rust-native.jsonl
 

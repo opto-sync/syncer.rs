@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-#define SYNCER_RS_ABI_VERSION 1u
+#define SYNCER_RS_ABI_VERSION 2u
 
 typedef enum syncer_rs_array_strategy {
     SYNCER_RS_ARRAY_REPLACE = 0,
@@ -23,6 +23,7 @@ typedef struct syncer_rs_options {
     int32_t array_strategy;
     uint32_t max_depth;
     bool resolve_by_timestamp;
+    bool detect_circular_refs;
     const char *lww_keys;
     const char *fww_keys;
     const char *array_match_keys;
@@ -34,6 +35,7 @@ static inline syncer_rs_options_t syncer_rs_default_options(void) {
     options.array_strategy = SYNCER_RS_ARRAY_REPLACE;
     options.max_depth = 0;
     options.resolve_by_timestamp = false;
+    options.detect_circular_refs = false;
     options.lww_keys = 0;
     options.fww_keys = 0;
     options.array_match_keys = 0;

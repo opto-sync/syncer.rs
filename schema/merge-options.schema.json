@@ -24,6 +24,11 @@
       "type": "boolean",
       "default": false
     },
+    "detectCircularRefs": {
+      "type": "boolean",
+      "default": false,
+      "description": "Compatibility option shared with syncer.c. Owned JSON trees cannot contain pointer cycles, so this does not change syncer.rs merge output."
+    },
     "lwwKeys": {
       "type": ["string", "null"],
       "default": null,

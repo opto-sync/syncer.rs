@@ -220,7 +220,7 @@ dependencies = [
 
 [[package]]
 name = "syncer-rs"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "js-sys",
  "pretty_assertions",

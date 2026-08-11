@@ -8,7 +8,12 @@ int main(void) {
     const char *base = "{\"items\":[{\"id\":1,\"left\":true}]}";
     const char *incoming = "{\"items\":[{\"id\":\"1\",\"right\":true}]}";
     syncer_rs_options_t options = syncer_rs_default_options();
+    if (options.detect_circular_refs) {
+        fputs("detect_circular_refs defaulted to true\n", stderr);
+        return EXIT_FAILURE;
+    }
     options.array_strategy = SYNCER_RS_ARRAY_MERGE_BY_KEY;
+    options.detect_circular_refs = true;
 
     char *merged = syncer_rs_merge_json_ex(base, incoming, &options);
     if (merged == NULL) {

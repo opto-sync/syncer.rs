@@ -12,6 +12,7 @@
     "arrayStrategy",
     "maxDepth",
     "resolveByTimestamp",
+    "detectCircularRefs",
     "basePresent",
     "incomingPresent"
   ],
@@ -31,6 +32,7 @@
     "arrayStrategy": { "type": "integer", "minimum": 0, "maximum": 4 },
     "maxDepth": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
     "resolveByTimestamp": { "type": "boolean" },
+    "detectCircularRefs": { "type": "boolean" },
     "basePresent": { "type": "boolean" },
     "incomingPresent": { "type": "boolean" }
   },

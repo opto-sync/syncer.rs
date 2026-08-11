@@ -93,19 +93,21 @@ mod tests {
         assert_eq!(options.array_strategy, ArrayMergeStrategy::Replace);
         assert_eq!(options.max_depth, MergeOptions::default().max_depth);
         assert!(!options.resolve_by_timestamp);
+        assert!(!options.detect_circular_refs);
         assert_eq!(options.lww_keys, None);
     }
 
     #[test]
     fn options_are_named_in_camel_case() {
         let options = parse(
-            r#"{"arrayStrategy":4,"maxDepth":3,"resolveByTimestamp":true,
+            r#"{"arrayStrategy":4,"maxDepth":3,"resolveByTimestamp":true,"detectCircularRefs":true,
                 "lwwKeys":"updatedAt","fwwKeys":"createdAt","arrayMatchKeys":"id"}"#,
         )
         .expect("camelCase options are valid");
         assert_eq!(options.array_strategy, ArrayMergeStrategy::MergeByKey);
         assert_eq!(options.max_depth, 3);
         assert!(options.resolve_by_timestamp);
+        assert!(options.detect_circular_refs);
         assert_eq!(options.lww_keys.as_deref(), Some("updatedAt"));
         assert_eq!(options.fww_keys.as_deref(), Some("createdAt"));
         assert_eq!(options.array_match_keys.as_deref(), Some("id"));
@@ -161,6 +163,7 @@ mod tests {
     fn a_wrongly_typed_strategy_is_rejected() {
         assert!(parse(r#"{"arrayStrategy":"1"}"#).is_err());
         assert!(parse(r#"{"resolveByTimestamp":"yes"}"#).is_err());
+        assert!(parse(r#"{"detectCircularRefs":"yes"}"#).is_err());
     }
 
     /// The wasm boundary rejects unknown keys against [`MERGE_OPTION_KEYS`] rather

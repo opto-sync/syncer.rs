@@ -2,9 +2,8 @@
 //!
 //! The merge core never installs a global logger or OpenTelemetry provider.
 //! Applications inject a [`MergeObservationSink`] and adapt the payload to the
-//! Zed-managed `oresoftware/next-loggers` Rust target. This matches the Ores
-//! ownership model: request/trace context remains application-owned, and a
-//! logging failure cannot change a merge result.
+//! application-owned Ores/OpenTelemetry adapter. Request/trace context remains
+//! application-owned, and a logging failure cannot change a merge result.
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
@@ -82,6 +81,7 @@ pub struct MergeObservation {
     pub array_strategy: i32,
     pub max_depth: u32,
     pub resolve_by_timestamp: bool,
+    pub detect_circular_refs: bool,
     pub base_present: bool,
     pub incoming_present: bool,
 }
@@ -89,7 +89,7 @@ pub struct MergeObservation {
 /// Application-owned adapter for structured logging.
 ///
 /// Implementations should forward the serialized event to
-/// `oresoftware/next-loggers` and let that logger attach the current shared
+/// an Ores-compatible sink and let the application attach its current shared
 /// request/trace context. Panics are isolated so observability cannot alter the
 /// result of a deterministic merge.
 pub trait MergeObservationSink {
@@ -171,6 +171,7 @@ fn record_result<T, S>(
         array_strategy: options.array_strategy as i32,
         max_depth: options.max_depth,
         resolve_by_timestamp: options.resolve_by_timestamp,
+        detect_circular_refs: options.detect_circular_refs,
         base_present,
         incoming_present,
     };
@@ -195,6 +196,7 @@ mod tests {
         let options = MergeOptions {
             array_strategy: ArrayMergeStrategy::MergeByKey,
             resolve_by_timestamp: true,
+            detect_circular_refs: true,
             lww_keys: Some("privateUpdatedAt".to_owned()),
             ..MergeOptions::default()
         };
@@ -216,6 +218,7 @@ mod tests {
         assert_eq!(observation.error_code, None);
         assert_eq!(observation.array_strategy, 4);
         assert!(observation.resolve_by_timestamp);
+        assert!(observation.detect_circular_refs);
 
         let encoded = serde_json::to_string(&observation)
             .expect("observation must serialize for structured logging");
@@ -282,6 +285,7 @@ mod tests {
             array_strategy: 0,
             max_depth: 0,
             resolve_by_timestamp: false,
+            detect_circular_refs: false,
             base_present: false,
             incoming_present: false,
         };
@@ -295,6 +299,7 @@ mod tests {
                 "arrayStrategy": 0,
                 "maxDepth": 0,
                 "resolveByTimestamp": false,
+                "detectCircularRefs": false,
                 "basePresent": false,
                 "incomingPresent": false
             })

@@ -45,6 +45,12 @@ pub struct MergeOptions {
     pub max_depth: u32,
     /// Enables timestamp veto rules on object nodes.
     pub resolve_by_timestamp: bool,
+    /// Compatibility option shared with pointer-based host engines.
+    ///
+    /// Rust JSON strings and `serde_json::Value` use owned acyclic trees, so
+    /// this flag cannot change merge output. It is retained at every boundary
+    /// so one cross-language options object does not silently lose a key.
+    pub detect_circular_refs: bool,
     /// Comma-separated LWW selectors. `None` uses `"updatedAt"`.
     pub lww_keys: Option<String>,
     /// Comma-separated FWW selectors. `None` disables FWW.
@@ -59,6 +65,7 @@ impl Default for MergeOptions {
             array_strategy: ArrayMergeStrategy::Replace,
             max_depth: 0,
             resolve_by_timestamp: false,
+            detect_circular_refs: false,
             lww_keys: None,
             fww_keys: None,
             array_match_keys: None,
