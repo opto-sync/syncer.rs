@@ -28,6 +28,7 @@ fn ffi_options_and_invalid_values_work() {
     let incoming = CString::new(r#"{"items":[{"id":1,"b":2}]}"#).unwrap();
     let mut options = SyncerRsOptions {
         array_strategy: 4,
+        detect_circular_refs: true,
         ..SyncerRsOptions::default()
     };
 
@@ -46,6 +47,13 @@ fn ffi_options_and_invalid_values_work() {
     // SAFETY: Pointers are valid; the invalid option should return NULL.
     let invalid = unsafe { syncer_rs_merge_json_ex(base.as_ptr(), incoming.as_ptr(), &options) };
     assert!(invalid.is_null());
+
+    options.array_strategy = 4;
+    options.abi_version = 1;
+    // SAFETY: The struct has the current layout, but the explicit legacy ABI
+    // discriminator must be rejected rather than interpreted ambiguously.
+    let legacy = unsafe { syncer_rs_merge_json_ex(base.as_ptr(), incoming.as_ptr(), &options) };
+    assert!(legacy.is_null());
 }
 
 #[test]

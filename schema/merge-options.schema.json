@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opto-sync.dev/schema/merge-options.schema.json",
+  "title": "opto-sync merge options",
+  "description": "Canonical language-neutral options accepted by opto-sync reconciliation engines. Host-language APIs may expose idiomatic names, but JSON and JavaScript boundaries use these camelCase keys and integer strategy codes.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "arrayStrategy": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4,
+      "default": 0,
+      "description": "0=replace, 1=append, 2=union, 3=merge-by-index, 4=merge-by-key."
+    },
+    "maxDepth": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "default": 0,
+      "description": "Maximum object nesting depth; zero means unlimited."
+    },
+    "resolveByTimestamp": {
+      "type": "boolean",
+      "default": false
+    },
+    "detectCircularRefs": {
+      "type": "boolean",
+      "default": false,
+      "description": "Compatibility option shared with syncer.c. Owned JSON trees cannot contain pointer cycles, so this does not change syncer.rs merge output."
+    },
+    "lwwKeys": {
+      "type": ["string", "null"],
+      "default": null,
+      "description": "Comma-separated last-write-wins selectors; null uses updatedAt."
+    },
+    "fwwKeys": {
+      "type": ["string", "null"],
+      "default": null,
+      "description": "Comma-separated first-write-wins selectors; null disables FWW."
+    },
+    "arrayMatchKeys": {
+      "type": ["string", "null"],
+      "default": null,
+      "description": "Comma-separated merge-by-key identity selectors; null uses id."
+    }
+  }
+}

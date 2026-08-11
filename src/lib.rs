@@ -8,6 +8,8 @@
 mod canonical;
 pub mod causal;
 mod core;
+pub mod observability;
+pub mod schema;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod ffi;
@@ -21,6 +23,15 @@ pub use crate::causal::{
 };
 pub use crate::core::{
     ArrayMergeStrategy, MergeError, MergeOptions, merge_json, merge_optional_json, merge_values,
+};
+pub use crate::observability::{
+    MERGE_OBSERVATION_JSON_SCHEMA, MERGE_OBSERVATION_SCHEMA_ID, MERGE_OBSERVATION_SCHEMA_VERSION,
+    MergeErrorCode, MergeObservation, MergeObservationSink, MergeOperation, MergeOutcome,
+    merge_json_observed, merge_optional_json_observed,
+};
+pub use crate::schema::{
+    CanonicalMergeOptions, MERGE_OPTION_KEYS, MERGE_OPTIONS_JSON_SCHEMA, MERGE_OPTIONS_SCHEMA_ID,
+    merge_json_with_schema_options, parse_merge_options_json,
 };
 
 /// Version shared by the Rust, C ABI, and WebAssembly surfaces.

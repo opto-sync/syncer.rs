@@ -41,7 +41,7 @@ export const cases = [
 
   // ---- absent / empty options ---------------------------------------------
   // Regression: `undefined` and `null` previously failed with
-  // "invalid type: unit value, expected struct WasmMergeOptions", even though
+  // "invalid type: unit value, expected struct CanonicalMergeOptions", even though
   // the struct is `#[serde(default)]`.
   {
     name: 'options may be an empty object',
@@ -63,6 +63,13 @@ export const cases = [
     incoming: ARRAY_INCOMING,
     options: null,
     expect: ARRAY_INCOMING,
+  },
+  {
+    name: 'an array is not an options object',
+    base: ARRAY_BASE,
+    incoming: ARRAY_INCOMING,
+    options: [],
+    throws: 'expected an object, got an array',
   },
 
   // ---- the documented array strategies ------------------------------------
@@ -132,6 +139,13 @@ export const cases = [
     incoming: '{"a":{"b":{"incoming":true,"same":"new"}}}',
     options: { maxDepth: 2 },
     expect: '{"a":{"b":{"incoming":true,"same":"new"}}}',
+  },
+  {
+    name: 'detectCircularRefs is accepted and inert for owned JSON trees',
+    base: '{"nested":{"left":true}}',
+    incoming: '{"nested":{"right":true}}',
+    options: { detectCircularRefs: true },
+    expect: '{"nested":{"left":true,"right":true}}',
   },
 
   // ---- cross-engine byte parity -------------------------------------------
@@ -207,6 +221,13 @@ export const cases = [
     base: '{}',
     incoming: '{}',
     options: { arrayStrategy: '1' },
+    throws: 'invalid merge options',
+  },
+  {
+    name: 'a wrongly typed detectCircularRefs flag is an error',
+    base: '{}',
+    incoming: '{}',
+    options: { detectCircularRefs: 'yes' },
     throws: 'invalid merge options',
   },
 

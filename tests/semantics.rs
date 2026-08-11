@@ -167,3 +167,23 @@ fn merge_by_key_without_identity_uses_union_semantics() {
     .unwrap();
     assert_eq!(once, twice);
 }
+
+#[test]
+fn circular_reference_detection_flag_is_inert_for_owned_json_trees() {
+    let base = r#"{"nested":{"left":true},"items":[1,2]}"#;
+    let incoming = r#"{"nested":{"right":true},"items":[2,3]}"#;
+    let disabled = MergeOptions {
+        array_strategy: ArrayMergeStrategy::Union,
+        detect_circular_refs: false,
+        ..MergeOptions::default()
+    };
+    let enabled = MergeOptions {
+        detect_circular_refs: true,
+        ..disabled.clone()
+    };
+
+    assert_eq!(
+        merge_json(base, incoming, &disabled).unwrap(),
+        merge_json(base, incoming, &enabled).unwrap()
+    );
+}

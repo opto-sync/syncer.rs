@@ -60,13 +60,15 @@ Call `merge_values` when the backend already has `serde_json::Value` instances.
 Build the dynamic library:
 
 ```sh
-cargo build --release
+cargo build --release --locked
 ```
 
 The public header is `include/syncer_rs.h`. Flutter bindings call
 `syncer_rs_merge_json` or `syncer_rs_merge_json_ex`, convert the returned UTF-8
 string, and always release it with `syncer_rs_free`. A null result indicates
-invalid JSON or options.
+invalid JSON or options. Consumers must initialize the options structure with
+`syncer_rs_default_options()` and compile against ABI v2; an explicit ABI v1
+structure is rejected before the new boolean field is read.
 
 The release library is:
 
@@ -78,7 +80,7 @@ The release library is:
 ## Node and browser Wasm
 
 ```sh
-wasm-pack build --release --target bundler -- --features wasm
+wasm-pack build --release --target bundler -- --locked --features wasm
 ```
 
 ```js
@@ -105,6 +107,7 @@ The options object accepts exactly these keys:
 | `arrayStrategy` | `0..=4` | `0` (replace) |
 | `maxDepth` | integer, `0` = unlimited | `0` |
 | `resolveByTimestamp` | boolean | `false` |
+| `detectCircularRefs` | boolean | `false` (accepted; inert for owned Rust JSON trees) |
 | `lwwKeys` | comma-separated string | `"updatedAt"` when resolving |
 | `fwwKeys` | comma-separated string | disabled |
 | `arrayMatchKeys` | comma-separated string | `"id"` |
@@ -127,6 +130,62 @@ through `JSON.parse`/`JSON.stringify` on the way in or out: JavaScript numbers
 cannot represent an int64 HLC timestamp such as `1689464777831256277`, and the
 string boundary is what preserves it.
 
+## Canonical JSON Schema boundary
+
+[`schema/merge-options.schema.json`](schema/merge-options.schema.json) is the
+Draft 2020-12 source of truth for option names, types, defaults, and strategy
+codes at language-neutral boundaries. The Rust crate embeds the exact file as
+`MERGE_OPTIONS_JSON_SCHEMA`; schema registries and code generators therefore do
+not need a separate network fetch.
+
+Rust services receiving options as JSON should use the strict validator rather
+than deserializing an ad-hoc local type:
+
+```rust
+use syncer_rs::merge_json_with_schema_options;
+
+let merged = merge_json_with_schema_options(
+    base_json,
+    incoming_json,
+    r#"{"arrayStrategy":4,"resolveByTimestamp":true}"#,
+)?;
+```
+
+Unknown keys, snake_case wire keys, invalid strategy codes, wrong types, and a
+`maxDepth` outside the unsigned 32-bit range are rejected. The WebAssembly
+surface uses this same Rust boundary type and key list, so its contract cannot
+silently drift from the schema validator.
+
+## Ores logging and shared context
+
+The deterministic engine performs no I/O and installs no global logger or
+OpenTelemetry provider. `merge_json_observed` and
+`merge_optional_json_observed` accept an application-owned
+`MergeObservationSink` and emit one structured, payload-safe event after each
+attempt. Documents, identity values, selectors, and request context are never
+placed in that event.
+
+Applications may adapt the event to the Rust target of
+`oresoftware/next-loggers`, allowing that application-owned logger to attach
+its current Ores `RequestContext`/`LogContext`. A broken sink is fail-open and
+cannot change the merge result. The event wire contract is
+[`schema/merge-observation.schema.json`](schema/merge-observation.schema.json)
+and is embedded as `MERGE_OBSERVATION_JSON_SCHEMA`.
+
+The intended shared integration boundaries use these canonical Zed package
+coordinates:
+
+- [`ores-otel/ores-interfaces`](https://github.com/ores-otel/ores-interfaces)
+  `^0.1.0`;
+- `oresoftware/next-loggers` `^0.1.0`, published from
+  [`ores-otel/ores.otel.log`](https://github.com/ores-otel/ores.otel.log).
+
+Neither coordinate currently has the immutable public `v0.1.0` release needed
+for a frozen install. The Zed manifest therefore declares no Ores dependency
+yet; adding an unresolved coordinate or a locally seeded registry would create
+false release provenance. Once those releases exist, the resolver-produced
+lock can make this integration reproducible across consumers.
+
 ## PostgreSQL and Supabase
 
 The intended database extension exposes
@@ -139,10 +198,10 @@ without creating a SQL-only semantics fork. See
 
 ```sh
 cargo fmt --check
-cargo clippy --all-targets --all-features -- -D warnings
-cargo test --all-targets
-cargo test --all-targets --features wasm   # src/wasm.rs is feature-gated
-cargo build --release --target wasm32-unknown-unknown --features wasm
+cargo clippy --locked --all-targets --all-features -- -D warnings
+cargo test --locked --all-targets
+cargo test --locked --all-targets --features wasm   # src/wasm.rs is feature-gated
+cargo build --locked --release --target wasm32-unknown-unknown --features wasm
 ```
 
 ### Wasm host conformance
@@ -166,7 +225,7 @@ rather than to either runner. CI runs both in
 To compare against the `syncer.c` differential corpus:
 
 ```sh
-cargo run --release --example jsonl_runner -- \
+cargo run --locked --release --example jsonl_runner -- \
   ../syncer.c/test-differential/corpus.jsonl \
   /tmp/results-rust-native.jsonl
 

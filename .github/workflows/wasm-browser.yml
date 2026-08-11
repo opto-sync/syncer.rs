@@ -60,7 +60,7 @@ jobs:
       # `--target web` rather than `nodejs`, so the Node runner and the browser
       # spec load byte-identical artifacts.
       - name: Build the wasm package
-        run: wasm-pack build --release --target web --out-dir pkg-web -- --features wasm
+        run: wasm-pack build --release --target web --out-dir pkg-web -- --locked --features wasm
 
       - name: Install test dependencies
         working-directory: tests/wasm

@@ -2,20 +2,20 @@
 
 # The wasm module is feature-gated, so the default target does not compile it.
 test:
-	cargo test --all-targets
-	cargo test --all-targets --features wasm
+	cargo test --locked --all-targets
+	cargo test --locked --all-targets --features wasm
 
 native:
-	cargo build --release
+	cargo build --locked --release
 
 # Bundler output, for consumers.
 wasm:
-	wasm-pack build --release --target bundler -- --features wasm
+	wasm-pack build --release --target bundler -- --locked --features wasm
 
 # Web output, for the conformance suites. `--target web` is what both the Node
 # runner and the browser spec load, so they exercise identical artifacts.
 pkg-web:
-	wasm-pack build --release --target web --out-dir pkg-web -- --features wasm
+	wasm-pack build --release --target web --out-dir pkg-web -- --locked --features wasm
 
 # Executes the shared corpus under Node. Fast; no browser download.
 test-wasm: pkg-web
