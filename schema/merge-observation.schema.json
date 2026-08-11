@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opto-sync.dev/schema/merge-observation.schema.json",
+  "title": "opto-sync merge observation",
+  "description": "Payload-safe structured observation emitted at the injection boundary after one reconciliation attempt. Documents and selector values are deliberately excluded.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "operation",
+    "outcome",
+    "arrayStrategy",
+    "maxDepth",
+    "resolveByTimestamp",
+    "basePresent",
+    "incomingPresent"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "opto-sync.merge-observation.v1" },
+    "operation": { "enum": ["mergeJson", "mergeOptionalJson"] },
+    "outcome": { "enum": ["succeeded", "rejected"] },
+    "errorCode": {
+      "enum": [
+        "invalidBaseJson",
+        "invalidIncomingJson",
+        "serializationFailed",
+        "invalidArrayStrategy",
+        "invalidOptions"
+      ]
+    },
+    "arrayStrategy": { "type": "integer", "minimum": 0, "maximum": 4 },
+    "maxDepth": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+    "resolveByTimestamp": { "type": "boolean" },
+    "basePresent": { "type": "boolean" },
+    "incomingPresent": { "type": "boolean" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "outcome": { "const": "rejected" } }, "required": ["outcome"] },
+      "then": { "required": ["errorCode"] },
+      "else": { "not": { "required": ["errorCode"] } }
+    }
+  ]
+}

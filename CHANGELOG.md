@@ -3,6 +3,30 @@
 All notable changes to `syncer-rs`. Versions follow the repository convention
 in `AGENTS.md`: while the crate is `0.x`, a breaking change takes a minor bump.
 
+## 0.2.1
+
+### Added
+
+- Canonical Draft 2020-12 merge-options schema, embedded in the crate and
+  enforced by `parse_merge_options_json` and
+  `merge_json_with_schema_options`.
+- Injection-based `MergeObservationSink`, observed merge entry points, stable
+  error codes, and a payload-safe observation schema for Ores structured
+  logging adapters.
+
+### Changed
+
+- The WebAssembly options boundary now reuses the same canonical Rust type and
+  option-key list as the JSON validator, removing a duplicate contract that
+  could drift.
+- Cargo and Zed package versions are aligned at `0.2.1`.
+
+### Packaging
+
+- The Zed manifest declares `ores-otel/ores-interfaces` and
+  `oresoftware/next-loggers` using their canonical polyglot package
+  coordinates. No unverified native-registry dependency is introduced.
+
 ## 0.2.0
 
 ### Breaking

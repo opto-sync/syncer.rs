@@ -1,79 +1,23 @@
-use serde::Deserialize;
 use wasm_bindgen::prelude::*;
 
-use crate::{ArrayMergeStrategy, MergeOptions, merge_json};
-
-/// Every accepted key on the JavaScript options object.
-///
-/// `deny_unknown_fields` alone is **not** sufficient here: `serde_wasm_bindgen`
-/// resolves struct fields by direct property lookup, so unknown keys never
-/// reach the generated visitor and the attribute silently has no effect at the
-/// wasm boundary. The keys are therefore checked explicitly against this list.
-/// It must stay in sync with the `WasmMergeOptions` fields below; the
-/// `option_keys_match_the_deserialized_fields` test enforces that.
-const OPTION_KEYS: [&str; 6] = [
-    "arrayStrategy",
-    "maxDepth",
-    "resolveByTimestamp",
-    "lwwKeys",
-    "fwwKeys",
-    "arrayMatchKeys",
-];
-
-/// The JavaScript-facing merge options object.
-///
-/// Field names are the camelCase forms of [`MergeOptions`]. Unknown keys are
-/// rejected rather than ignored: this is a reconciliation core, and a silently
-/// dropped option changes the merge *result* instead of failing. In particular
-/// a caller porting from the Rust or C ABI naming (`array_strategy`) would
-/// otherwise receive a `Replace` merge with no diagnostic at all.
-#[derive(Debug, Default, Deserialize)]
-#[serde(default, deny_unknown_fields, rename_all = "camelCase")]
-struct WasmMergeOptions {
-    array_strategy: Option<i32>,
-    max_depth: u32,
-    resolve_by_timestamp: bool,
-    lww_keys: Option<String>,
-    fww_keys: Option<String>,
-    array_match_keys: Option<String>,
-}
-
-impl TryFrom<WasmMergeOptions> for MergeOptions {
-    /// Plain-text so the conversion is unit-testable off the wasm target;
-    /// the exported functions wrap it in a `JsError` at the boundary.
-    type Error = String;
-
-    fn try_from(options: WasmMergeOptions) -> Result<Self, Self::Error> {
-        let array_strategy = match options.array_strategy {
-            Some(value) => ArrayMergeStrategy::try_from(value).map_err(|e| e.to_string())?,
-            None => ArrayMergeStrategy::Replace,
-        };
-        Ok(Self {
-            array_strategy,
-            max_depth: options.max_depth,
-            resolve_by_timestamp: options.resolve_by_timestamp,
-            lww_keys: options.lww_keys,
-            fww_keys: options.fww_keys,
-            array_match_keys: options.array_match_keys,
-        })
-    }
-}
+use crate::schema::{CanonicalMergeOptions, MERGE_OPTION_KEYS};
+use crate::{MergeOptions, merge_json};
 
 /// Reads the options argument, treating `undefined` and `null` as "defaults".
 ///
-/// `WasmMergeOptions` is `#[serde(default)]`, so an absent option object is
+/// `CanonicalMergeOptions` is `#[serde(default)]`, so an absent option object is
 /// meaningful; without this the idiomatic JavaScript calls
 /// `mergeJsonWithOptions(base, incoming)` and `(base, incoming, undefined)`
 /// both failed with a `invalid type: unit value` deserialization error.
 fn read_options(options: JsValue) -> Result<MergeOptions, JsError> {
-    let parsed: WasmMergeOptions = if options.is_undefined() || options.is_null() {
-        WasmMergeOptions::default()
+    let parsed: CanonicalMergeOptions = if options.is_undefined() || options.is_null() {
+        CanonicalMergeOptions::default()
     } else {
         reject_unknown_keys(&options)?;
         serde_wasm_bindgen::from_value(options)
             .map_err(|error| JsError::new(&format!("invalid merge options: {error}")))?
     };
-    MergeOptions::try_from(parsed).map_err(|error| JsError::new(&error))
+    MergeOptions::try_from(parsed).map_err(|error| JsError::new(&error.to_string()))
 }
 
 /// Fails on any own enumerable key that is not a documented merge option.
@@ -81,6 +25,11 @@ fn read_options(options: JsValue) -> Result<MergeOptions, JsError> {
 /// Non-object values are left alone so that `serde_wasm_bindgen` produces the
 /// more precise "invalid type" diagnostic for them.
 fn reject_unknown_keys(options: &JsValue) -> Result<(), JsError> {
+    if js_sys::Array::is_array(options) {
+        return Err(JsError::new(
+            "invalid merge options: expected an object, got an array",
+        ));
+    }
     let Some(object) = options.dyn_ref::<js_sys::Object>() else {
         return Ok(());
     };
@@ -88,11 +37,11 @@ fn reject_unknown_keys(options: &JsValue) -> Result<(), JsError> {
         let Some(key) = key.as_string() else {
             continue;
         };
-        if !OPTION_KEYS.contains(&key.as_str()) {
+        if !MERGE_OPTION_KEYS.contains(&key.as_str()) {
             return Err(JsError::new(&format!(
                 "unknown merge option `{key}`; expected one of: {}. \
                  Merge options use camelCase, unlike the Rust and C ABI field names.",
-                OPTION_KEYS.join(", ")
+                MERGE_OPTION_KEYS.join(", ")
             )));
         }
     }
@@ -129,13 +78,13 @@ pub fn merge_json_with_options_wasm(
 /// (`tests/wasm/run-node.mjs`) and Chromium (`tests/wasm/browser.spec.mjs`).
 #[cfg(test)]
 mod tests {
-    use super::WasmMergeOptions;
+    use crate::schema::{CanonicalMergeOptions, MERGE_OPTION_KEYS};
     use crate::{ArrayMergeStrategy, MergeOptions};
 
     fn parse(json: &str) -> Result<MergeOptions, String> {
-        let raw: WasmMergeOptions =
+        let raw: CanonicalMergeOptions =
             serde_json::from_str(json).map_err(|error| error.to_string())?;
-        MergeOptions::try_from(raw)
+        MergeOptions::try_from(raw).map_err(|error| error.to_string())
     }
 
     #[test]
@@ -214,26 +163,26 @@ mod tests {
         assert!(parse(r#"{"resolveByTimestamp":"yes"}"#).is_err());
     }
 
-    /// The wasm boundary rejects unknown keys against [`OPTION_KEYS`] rather
+    /// The wasm boundary rejects unknown keys against [`MERGE_OPTION_KEYS`] rather
     /// than via `deny_unknown_fields`, so the list has to be kept in sync by
     /// hand. serde's own "expected one of ..." diagnostic is the source of
     /// truth for what the struct actually accepts.
     #[test]
     fn option_keys_match_the_deserialized_fields() {
-        let error = serde_json::from_str::<WasmMergeOptions>(r#"{"__unknown__":1}"#)
+        let error = serde_json::from_str::<CanonicalMergeOptions>(r#"{"__unknown__":1}"#)
             .expect_err("deny_unknown_fields must reject this")
             .to_string();
 
-        for key in super::OPTION_KEYS {
+        for key in MERGE_OPTION_KEYS {
             assert!(
                 error.contains(key),
-                "`{key}` is in OPTION_KEYS but is not a WasmMergeOptions field: {error}"
+                "`{key}` is in MERGE_OPTION_KEYS but is not a CanonicalMergeOptions field: {error}"
             );
         }
         assert_eq!(
             error.matches('`').count() / 2,
-            super::OPTION_KEYS.len() + 1, // the expected fields, plus `__unknown__`
-            "WasmMergeOptions has a field missing from OPTION_KEYS: {error}"
+            MERGE_OPTION_KEYS.len() + 1, // the expected fields, plus `__unknown__`
+            "CanonicalMergeOptions has a field missing from MERGE_OPTION_KEYS: {error}"
         );
     }
 }

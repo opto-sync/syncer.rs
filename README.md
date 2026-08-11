@@ -127,6 +127,60 @@ through `JSON.parse`/`JSON.stringify` on the way in or out: JavaScript numbers
 cannot represent an int64 HLC timestamp such as `1689464777831256277`, and the
 string boundary is what preserves it.
 
+## Canonical JSON Schema boundary
+
+[`schema/merge-options.schema.json`](schema/merge-options.schema.json) is the
+Draft 2020-12 source of truth for option names, types, defaults, and strategy
+codes at language-neutral boundaries. The Rust crate embeds the exact file as
+`MERGE_OPTIONS_JSON_SCHEMA`; schema registries and code generators therefore do
+not need a separate network fetch.
+
+Rust services receiving options as JSON should use the strict validator rather
+than deserializing an ad-hoc local type:
+
+```rust
+use syncer_rs::merge_json_with_schema_options;
+
+let merged = merge_json_with_schema_options(
+    base_json,
+    incoming_json,
+    r#"{"arrayStrategy":4,"resolveByTimestamp":true}"#,
+)?;
+```
+
+Unknown keys, snake_case wire keys, invalid strategy codes, wrong types, and a
+`maxDepth` outside the unsigned 32-bit range are rejected. The WebAssembly
+surface uses this same Rust boundary type and key list, so its contract cannot
+silently drift from the schema validator.
+
+## Ores logging and shared context
+
+The deterministic engine performs no I/O and installs no global logger or
+OpenTelemetry provider. `merge_json_observed` and
+`merge_optional_json_observed` accept an application-owned
+`MergeObservationSink` and emit one structured, payload-safe event after each
+attempt. Documents, identity values, selectors, and request context are never
+placed in that event.
+
+Applications adapt the event to the Rust target of
+`oresoftware/next-loggers`; that logger attaches its current Ores
+`RequestContext`/`LogContext`. A broken sink is fail-open and cannot change the
+merge result. The event wire contract is
+[`schema/merge-observation.schema.json`](schema/merge-observation.schema.json)
+and is embedded as `MERGE_OBSERVATION_JSON_SCHEMA`.
+
+The Zed manifest declares the shared integration boundaries using their
+canonical package coordinates:
+
+- [`ores-otel/ores-interfaces`](https://github.com/ores-otel/ores-interfaces)
+  `^0.1.0`;
+- `oresoftware/next-loggers` `^0.1.0`, published from
+  [`ores-otel/ores.otel.log`](https://github.com/ores-otel/ores.otel.log).
+
+These remain Zed dependencies rather than guessed Cargo registry crates. This
+keeps Rust, Dart, and TypeScript consumers on the same polyglot source packages
+and lets each consumer select the appropriate native target.
+
 ## PostgreSQL and Supabase
 
 The intended database extension exposes
