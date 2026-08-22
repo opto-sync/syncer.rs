@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opto-sync.dev/schema/causal-envelope.schema.json",
+  "title": "opto-sync causal envelope",
+  "description": "Transport-neutral mutation envelope with a bounded version vector. Standard JSON Schema checks the portable wire shape; CausalEnvelope::validate additionally enforces UTF-8 byte limits and requires clock[replicaId] to be positive.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "documentId",
+    "mutationId",
+    "replicaId",
+    "clock",
+    "operation"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "opto-sync.causal.v1"
+    },
+    "documentId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "\\S"
+    },
+    "mutationId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "\\S"
+    },
+    "replicaId": {
+      "$ref": "#/$defs/replicaId"
+    },
+    "clock": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 1024,
+      "propertyNames": {
+        "$ref": "#/$defs/replicaId"
+      },
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 18446744073709551615
+      }
+    },
+    "operation": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "value"],
+          "properties": {
+            "kind": { "const": "upsert" },
+            "value": true
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": {
+            "kind": { "const": "delete" }
+          }
+        }
+      ]
+    }
+  },
+  "$defs": {
+    "replicaId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9._:-]+$"
+    }
+  }
+}

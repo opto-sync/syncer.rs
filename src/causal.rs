@@ -14,6 +14,11 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// Wire schema emitted by [`CausalEnvelope`].
 pub const CAUSAL_SCHEMA_VERSION: &str = "opto-sync.causal.v1";
+/// Stable identifier of the canonical causal-envelope JSON Schema.
+pub const CAUSAL_ENVELOPE_SCHEMA_ID: &str =
+    "https://opto-sync.dev/schema/causal-envelope.schema.json";
+/// Draft 2020-12 wire-shape contract shipped with the crate.
+pub const CAUSAL_ENVELOPE_JSON_SCHEMA: &str = include_str!("../schema/causal-envelope.schema.json");
 /// Maximum replica entries accepted in one vector clock.
 pub const MAX_CAUSAL_REPLICAS: usize = 1_024;
 const MAX_REPLICA_ID_BYTES: usize = 128;
@@ -140,10 +145,12 @@ impl VersionVector {
                 maximum: MAX_CAUSAL_REPLICAS,
             });
         }
-        if self.get(replica_id) >= counter {
+        let current = self.get(replica_id);
+        let joined = join_counter(current, counter);
+        if joined == current {
             return Ok(false);
         }
-        self.entries.insert(replica_id.to_owned(), counter);
+        self.entries.insert(replica_id.to_owned(), joined);
         Ok(true)
     }
 
@@ -179,12 +186,7 @@ impl VersionVector {
             }
         }
 
-        match (less, greater) {
-            (false, false) => VersionRelation::Equal,
-            (true, false) => VersionRelation::Before,
-            (false, true) => VersionRelation::After,
-            (true, true) => VersionRelation::Concurrent,
-        }
+        relation_from_order_flags(less, greater)
     }
 
     /// Reports whether this vector is equal to or causally after `other`.
@@ -362,12 +364,7 @@ impl<T> CausalEnvelope<T> {
     /// Classifies this mutation against a receiver's durable causal checkpoint.
     #[must_use]
     pub fn disposition_against(&self, checkpoint: &VersionVector) -> CausalDisposition {
-        match self.clock.relation(checkpoint) {
-            VersionRelation::Equal => CausalDisposition::Duplicate,
-            VersionRelation::Before => CausalDisposition::Stale,
-            VersionRelation::After => CausalDisposition::Apply,
-            VersionRelation::Concurrent => CausalDisposition::ResolveConcurrent,
-        }
+        disposition_from_relation(self.clock.relation(checkpoint))
     }
 
     /// Merges this envelope's clock into a receiver after the mutation is
@@ -476,6 +473,92 @@ fn validate_mutation_id(mutation_id: &str) -> Result<(), CausalEnvelopeError> {
 
 fn valid_external_id(value: &str, maximum_bytes: usize) -> bool {
     !value.trim().is_empty() && value.len() <= maximum_bytes && !value.chars().any(char::is_control)
+}
+
+const fn join_counter(local: u64, incoming: u64) -> u64 {
+    if local >= incoming { local } else { incoming }
+}
+
+const fn relation_from_order_flags(less: bool, greater: bool) -> VersionRelation {
+    match (less, greater) {
+        (false, false) => VersionRelation::Equal,
+        (true, false) => VersionRelation::Before,
+        (false, true) => VersionRelation::After,
+        (true, true) => VersionRelation::Concurrent,
+    }
+}
+
+const fn disposition_from_relation(relation: VersionRelation) -> CausalDisposition {
+    match relation {
+        VersionRelation::Equal => CausalDisposition::Duplicate,
+        VersionRelation::Before => CausalDisposition::Stale,
+        VersionRelation::After => CausalDisposition::Apply,
+        VersionRelation::Concurrent => CausalDisposition::ResolveConcurrent,
+    }
+}
+
+#[cfg(kani)]
+mod verification {
+    use super::*;
+
+    fn reverse(relation: VersionRelation) -> VersionRelation {
+        match relation {
+            VersionRelation::Equal => VersionRelation::Equal,
+            VersionRelation::Before => VersionRelation::After,
+            VersionRelation::After => VersionRelation::Before,
+            VersionRelation::Concurrent => VersionRelation::Concurrent,
+        }
+    }
+
+    #[kani::proof]
+    fn two_replica_relation_is_dual_for_all_counters() {
+        let left_alpha = kani::any::<u64>();
+        let left_beta = kani::any::<u64>();
+        let right_alpha = kani::any::<u64>();
+        let right_beta = kani::any::<u64>();
+
+        let forward = relation_from_order_flags(
+            left_alpha < right_alpha || left_beta < right_beta,
+            left_alpha > right_alpha || left_beta > right_beta,
+        );
+        let backward = relation_from_order_flags(
+            right_alpha < left_alpha || right_beta < left_beta,
+            right_alpha > left_alpha || right_beta > left_beta,
+        );
+        assert_eq!(forward, reverse(backward));
+    }
+
+    #[kani::proof]
+    fn counter_join_is_a_commutative_idempotent_upper_bound() {
+        let left = kani::any::<u64>();
+        let right = kani::any::<u64>();
+        let joined = join_counter(left, right);
+
+        assert_eq!(joined, join_counter(right, left));
+        assert_eq!(join_counter(left, left), left);
+        assert!(joined >= left);
+        assert!(joined >= right);
+    }
+
+    #[kani::proof]
+    fn disposition_mapping_is_total_and_distinct() {
+        assert_eq!(
+            disposition_from_relation(VersionRelation::Equal),
+            CausalDisposition::Duplicate
+        );
+        assert_eq!(
+            disposition_from_relation(VersionRelation::Before),
+            CausalDisposition::Stale
+        );
+        assert_eq!(
+            disposition_from_relation(VersionRelation::After),
+            CausalDisposition::Apply
+        );
+        assert_eq!(
+            disposition_from_relation(VersionRelation::Concurrent),
+            CausalDisposition::ResolveConcurrent
+        );
+    }
 }
 
 #[cfg(test)]
@@ -616,5 +699,41 @@ mod tests {
         assert_eq!(envelope.acknowledge_into(&mut checkpoint), Ok(true));
         assert_eq!(checkpoint.get("phone"), 4);
         assert_eq!(checkpoint.get("desktop"), 1);
+    }
+
+    #[test]
+    fn embedded_causal_schema_matches_the_wire_discriminants_and_bounds() {
+        let schema: serde_json::Value = serde_json::from_str(CAUSAL_ENVELOPE_JSON_SCHEMA)
+            .expect("embedded causal schema must be valid JSON");
+        assert_eq!(
+            schema["$schema"],
+            "https://json-schema.org/draft/2020-12/schema"
+        );
+        assert_eq!(schema["$id"], CAUSAL_ENVELOPE_SCHEMA_ID);
+        assert_eq!(schema["additionalProperties"], false);
+        assert_eq!(
+            schema["properties"]["schemaVersion"]["const"],
+            CAUSAL_SCHEMA_VERSION
+        );
+        assert_eq!(
+            schema["properties"]["clock"]["maxProperties"],
+            MAX_CAUSAL_REPLICAS
+        );
+        assert_eq!(
+            schema["properties"]["clock"]["additionalProperties"]["maximum"],
+            u64::MAX
+        );
+
+        let operation_kinds = schema["properties"]["operation"]["oneOf"]
+            .as_array()
+            .expect("operation must be a union")
+            .iter()
+            .map(|variant| {
+                variant["properties"]["kind"]["const"]
+                    .as_str()
+                    .expect("operation kind must be a string")
+            })
+            .collect::<BTreeSet<_>>();
+        assert_eq!(operation_kinds, BTreeSet::from(["delete", "upsert"]));
     }
 }
