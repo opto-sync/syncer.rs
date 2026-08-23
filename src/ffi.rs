@@ -125,8 +125,7 @@ unsafe fn options_from_ffi(pointer: *const SyncerRsOptions) -> Result<MergeOptio
     let abi_version = unsafe { ptr::read_unaligned(pointer.cast::<u32>()) };
     if abi_version != SYNCER_RS_ABI_VERSION {
         return Err(MergeError::InvalidOptions(format!(
-            "ABI version {} is unsupported; expected {}",
-            abi_version, SYNCER_RS_ABI_VERSION
+            "ABI version {abi_version} is unsupported; expected {SYNCER_RS_ABI_VERSION}"
         )));
     }
 
