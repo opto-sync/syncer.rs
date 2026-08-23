@@ -156,6 +156,16 @@ Unknown keys, snake_case wire keys, invalid strategy codes, wrong types, and a
 surface uses this same Rust boundary type and key list, so its contract cannot
 silently drift from the schema validator.
 
+[`schema/causal-envelope.schema.json`](schema/causal-envelope.schema.json) is
+the complementary wire-shape contract for version-vector mutations and is
+embedded as `CAUSAL_ENVELOPE_JSON_SCHEMA`. Portable schema validation is paired
+with `CausalEnvelope::validate` for the dynamic actor-counter relationship and
+UTF-8 byte bounds that standard JSON Schema cannot express exactly.
+
+The causal counter join, partial-order classifier, and disposition mapping also
+have Kani proofs over their complete scalar domains. The exact claims and their
+limits are documented in [`docs/FORMAL_METHODS.md`](docs/FORMAL_METHODS.md).
+
 ## Ores logging and shared context
 
 The deterministic engine performs no I/O and installs no global logger or

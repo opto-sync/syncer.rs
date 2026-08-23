@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "opto-sync.causal.v1",
+  "documentId": "documents/example",
+  "mutationId": "mutation-0002",
+  "replicaId": "mobile:primary",
+  "clock": {
+    "mobile:primary": 0
+  },
+  "operation": {
+    "kind": "delete"
+  },
+  "unexpected": true
+}

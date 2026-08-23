@@ -18,8 +18,9 @@ pub mod ffi;
 mod wasm;
 
 pub use crate::causal::{
-    CAUSAL_SCHEMA_VERSION, CausalDisposition, CausalEnvelope, CausalEnvelopeError, CausalOperation,
-    MAX_CAUSAL_REPLICAS, VersionRelation, VersionVector, VersionVectorError,
+    CAUSAL_ENVELOPE_JSON_SCHEMA, CAUSAL_ENVELOPE_SCHEMA_ID, CAUSAL_SCHEMA_VERSION,
+    CausalDisposition, CausalEnvelope, CausalEnvelopeError, CausalOperation, MAX_CAUSAL_REPLICAS,
+    VersionRelation, VersionVector, VersionVectorError,
 };
 pub use crate::core::{
     ArrayMergeStrategy, MergeError, MergeOptions, merge_json, merge_optional_json, merge_values,

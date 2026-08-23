@@ -1,0 +1,77 @@
+name: Formal methods
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  causal-kani:
+    name: Kani causal-ordering proofs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+
+      - name: Install pinned Kani verifier
+        run: |
+          cargo install --locked kani-verifier --version 0.67.0
+          cargo kani setup
+
+      - name: Prove causal join, ordering duality, and disposition mapping
+        run: cargo kani --output-format terse
+
+  causal-schema:
+    name: Causal JSON Schema contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+
+      - name: Install Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22.16.0'
+
+      - name: Compile the Draft 2020-12 schema
+        run: >-
+          npx --yes ajv-cli@5.0.0 compile
+          --spec=draft2020
+          --strict=true
+          -s schema/causal-envelope.schema.json
+
+      - name: Accept the valid fixture and reject the invalid fixture
+        run: |
+          schema='schema/causal-envelope.schema.json'
+          npx --yes ajv-cli@5.0.0 validate --spec=draft2020 --strict=true \
+            -s "$schema" -d schema/examples/causal-envelope.valid.json
+          if npx --yes ajv-cli@5.0.0 validate --spec=draft2020 --strict=true \
+            -s "$schema" -d schema/examples/causal-envelope.invalid.json; then
+            echo 'invalid causal envelope unexpectedly passed schema validation'
+            exit 1
+          fi
+
+      - name: Check schema and production wire discriminants together
+        run: >-
+          cargo test --locked
+          embedded_causal_schema_matches_the_wire_discriminants_and_bounds

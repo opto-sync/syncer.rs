@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "opto-sync.causal.v1",
+  "documentId": "documents/example",
+  "mutationId": "mutation-0001",
+  "replicaId": "web:primary",
+  "clock": {
+    "web:primary": 7,
+    "mobile.secondary": 3
+  },
+  "operation": {
+    "kind": "upsert",
+    "value": {
+      "title": "offline edit",
+      "completed": false
+    }
+  }
+}
