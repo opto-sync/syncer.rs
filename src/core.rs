@@ -202,23 +202,21 @@ fn merge_arrays(base: &mut Vec<Value>, incoming: &[Value], options: &MergeOption
         ArrayMergeStrategy::Replace => *base = incoming.to_vec(),
         ArrayMergeStrategy::Append => base.extend_from_slice(incoming),
         ArrayMergeStrategy::Union => {
-            for value in incoming {
-                if !base
-                    .iter()
-                    .any(|candidate| values_deep_equal(candidate, value))
-                {
-                    base.push(value.clone());
-                }
-            }
+            let additions: Vec<Value> = incoming
+                .iter()
+                .filter(|value| {
+                    !base
+                        .iter()
+                        .any(|candidate| values_deep_equal(candidate, value))
+                })
+                .cloned()
+                .collect();
+            base.extend(additions);
         }
         ArrayMergeStrategy::MergeByIndex => {
-            for (index, incoming_value) in incoming.iter().enumerate() {
-                let Some(base_value) = base.get_mut(index) else {
-                    base.push(incoming_value.clone());
-                    continue;
-                };
-
-                match (base_value, incoming_value) {
+            let overlap = base.len().min(incoming.len());
+            base.iter_mut().zip(incoming.iter()).take(overlap).for_each(
+                |(base_value, incoming_value)| match (base_value, incoming_value) {
                     (Value::Object(base_object), Value::Object(incoming_object)) => {
                         let reject = options.resolve_by_timestamp
                             && should_reject_objects(base_object, incoming_object, options);
@@ -232,57 +230,57 @@ fn merge_arrays(base: &mut Vec<Value>, incoming: &[Value], options: &MergeOption
                         }
                     }
                     (base_value, incoming_value) => *base_value = incoming_value.clone(),
-                }
+                },
+            );
+            if incoming.len() > base.len() {
+                base.extend(incoming[base.len()..].iter().cloned());
             }
         }
         ArrayMergeStrategy::MergeByKey => {
             let match_keys = comma_separated(options.array_match_keys.as_deref().unwrap_or("id"));
-
-            for incoming_value in incoming {
-                let Some((identity_key, identity)) =
-                    identity_of(incoming_value, match_keys.iter().copied())
-                else {
-                    if !base
-                        .iter()
-                        .any(|candidate| values_deep_equal(candidate, incoming_value))
-                    {
-                        base.push(incoming_value.clone());
+            incoming.iter().for_each(|incoming_value| {
+                match identity_of(incoming_value, match_keys.iter().copied()) {
+                    None => {
+                        if !base
+                            .iter()
+                            .any(|candidate| values_deep_equal(candidate, incoming_value))
+                        {
+                            base.push(incoming_value.clone());
+                        }
                     }
-                    continue;
-                };
-
-                let matched_index = base.iter().position(|candidate| {
-                    candidate
-                        .as_object()
-                        .and_then(|object| object.get(identity_key))
-                        .is_some_and(|candidate_identity| {
-                            identity_values_equal(candidate_identity, identity)
-                        })
-                });
-
-                let Some(index) = matched_index else {
-                    base.push(incoming_value.clone());
-                    continue;
-                };
-
-                let Some(base_object) = base[index].as_object_mut() else {
-                    continue;
-                };
-                let incoming_object = incoming_value
-                    .as_object()
-                    .expect("an identity can only come from an object");
-
-                let reject = options.resolve_by_timestamp
-                    && should_reject_objects(base_object, incoming_object, options);
-                if !reject {
-                    merge_objects(
-                        base_object,
-                        incoming_object,
-                        options,
-                        depth.saturating_add(1),
-                    );
+                    Some((identity_key, identity)) => {
+                        let matched_index = base.iter().position(|candidate| {
+                            candidate
+                                .as_object()
+                                .and_then(|object| object.get(identity_key))
+                                .is_some_and(|candidate_identity| {
+                                    identity_values_equal(candidate_identity, identity)
+                                })
+                        });
+                        match matched_index {
+                            None => base.push(incoming_value.clone()),
+                            Some(index) => {
+                                let Some(base_object) = base[index].as_object_mut() else {
+                                    return;
+                                };
+                                let incoming_object = incoming_value
+                                    .as_object()
+                                    .expect("an identity can only come from an object");
+                                let reject = options.resolve_by_timestamp
+                                    && should_reject_objects(base_object, incoming_object, options);
+                                if !reject {
+                                    merge_objects(
+                                        base_object,
+                                        incoming_object,
+                                        options,
+                                        depth.saturating_add(1),
+                                    );
+                                }
+                            }
+                        }
+                    }
                 }
-            }
+            });
         }
     }
 }
@@ -297,15 +295,10 @@ fn comma_separated(value: &str) -> Vec<&str> {
 
 fn identity_of<'a>(
     value: &'a Value,
-    keys: impl Iterator<Item = &'a str>,
+    mut keys: impl Iterator<Item = &'a str>,
 ) -> Option<(&'a str, &'a Value)> {
     let object = value.as_object()?;
-    for key in keys {
-        if let Some(identity) = object.get(key) {
-            return Some((key, identity));
-        }
-    }
-    None
+    keys.find_map(|key| object.get(key).map(|identity| (key, identity)))
 }
 
 fn identity_values_equal(left: &Value, right: &Value) -> bool {
