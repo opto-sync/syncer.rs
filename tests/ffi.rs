@@ -1,9 +1,9 @@
 use std::ffi::{CStr, CString};
 
 use syncer_rs::ffi::{
-    SYNCER_RS_DISP_APPLY, SYNCER_RS_ERR_JSON, SYNCER_RS_ERR_NULL, SYNCER_RS_OK, SyncerRsOptions,
     syncer_rs_causal_acknowledge, syncer_rs_causal_disposition, syncer_rs_causal_validate,
     syncer_rs_free, syncer_rs_merge_json, syncer_rs_merge_json_ex, syncer_rs_version,
+    SyncerRsOptions, SYNCER_RS_DISP_APPLY, SYNCER_RS_ERR_JSON, SYNCER_RS_ERR_NULL, SYNCER_RS_OK,
 };
 
 #[test]
@@ -83,8 +83,8 @@ fn ffi_one_sided_merge_validates_and_normalizes() {
 }
 
 fn sample_envelope_and_checkpoint() -> (CString, CString) {
-    let mut clock = syncer_rs::VersionVector::from_entries([("phone".into(), 2)])
-        .expect("checkpoint vector");
+    let mut clock =
+        syncer_rs::VersionVector::from_entries([("phone".into(), 2)]).expect("checkpoint vector");
     let envelope = syncer_rs::CausalEnvelope::upsert(
         "notes/42",
         "mutation-3",

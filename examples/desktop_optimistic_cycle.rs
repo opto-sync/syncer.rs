@@ -17,7 +17,8 @@ fn main() {
     .expect("envelope");
     envelope.validate().expect("valid wire envelope");
 
-    let mut checkpoint = VersionVector::from_entries([("phone".to_owned(), 2)]).expect("checkpoint");
+    let mut checkpoint =
+        VersionVector::from_entries([("phone".to_owned(), 2)]).expect("checkpoint");
     assert_eq!(
         envelope.disposition_against(&checkpoint),
         CausalDisposition::Apply
