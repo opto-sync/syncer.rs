@@ -1,9 +1,9 @@
 use std::ffi::{CStr, CString};
 
 use syncer_rs::ffi::{
+    SYNCER_RS_DISP_APPLY, SYNCER_RS_ERR_JSON, SYNCER_RS_ERR_NULL, SYNCER_RS_OK, SyncerRsOptions,
     syncer_rs_causal_acknowledge, syncer_rs_causal_disposition, syncer_rs_causal_validate,
     syncer_rs_free, syncer_rs_merge_json, syncer_rs_merge_json_ex, syncer_rs_version,
-    SyncerRsOptions, SYNCER_RS_DISP_APPLY, SYNCER_RS_ERR_JSON, SYNCER_RS_ERR_NULL, SYNCER_RS_OK,
 };
 
 #[test]

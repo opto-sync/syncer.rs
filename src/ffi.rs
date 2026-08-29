@@ -1,12 +1,12 @@
 //! Stable C ABI used by Flutter/Dart FFI and other native hosts.
 
-use std::ffi::{c_char, CStr, CString};
-use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::ffi::{CStr, CString, c_char};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::ptr;
 
 use crate::{
-    merge_optional_json, ArrayMergeStrategy, CausalDisposition, CausalEnvelope,
-    CausalEnvelopeError, MergeError, MergeOptions, VersionVector, VersionVectorError, VERSION,
+    ArrayMergeStrategy, CausalDisposition, CausalEnvelope, CausalEnvelopeError, MergeError,
+    MergeOptions, VERSION, VersionVector, VersionVectorError, merge_optional_json,
 };
 
 /// Success from a typed causal FFI call.
