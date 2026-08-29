@@ -70,6 +70,21 @@ invalid JSON or options. Consumers must initialize the options structure with
 `syncer_rs_default_options()` and compile against ABI v2; an explicit ABI v1
 structure is rejected before the new boolean field is read.
 
+Causal envelopes use a separate typed-error surface (ABI additive, crate 0.4.0):
+
+```c
+int code = syncer_rs_causal_validate(envelope_json, &error);
+int disposition;
+syncer_rs_causal_disposition(envelope_json, checkpoint_json, &disposition, &error);
+char *joined = NULL;
+syncer_rs_causal_acknowledge(envelope_json, checkpoint_json, &joined, &error);
+```
+
+`0` is success. Non-zero codes are `SYNCER_RS_ERR_*` in `include/syncer_rs.h`.
+`syncer.rs` is merge + causal ordering only. Desktop lifecycle and SQLite
+checkpoints stay in `opto-sync-clients/desktop-rust`. See
+`examples/desktop_optimistic_cycle.rs`.
+
 The release library is:
 
 - macOS: `target/release/libsyncer_rs.dylib`
