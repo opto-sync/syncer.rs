@@ -3,6 +3,18 @@
 All notable changes to `syncer-rs`. Versions follow the repository convention
 in `AGENTS.md`: while the crate is `0.x`, a breaking change takes a minor bump.
 
+## 0.4.0
+
+### Added
+
+- Pure `optimistic` module for Flutter and Rust desktop hosts: record an
+  upsert or delete as the `(envelope, version-vector snapshot)` pair that
+  must be persisted in the same local transaction.
+- Typed errors `Conflict`, `MissingReplica`, and `StaleVector`. Concurrent
+  envelopes are never acknowledged until the host persists a resolution.
+- C ABI `syncer_rs_optimistic_record` / `syncer_rs_optimistic_receive` for
+  Dart FFI. Diagnostics name error kinds only; payloads are never logged.
+
 ## 0.3.0
 
 ### Added

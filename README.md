@@ -70,6 +70,26 @@ invalid JSON or options. Consumers must initialize the options structure with
 `syncer_rs_default_options()` and compile against ABI v2; an explicit ABI v1
 structure is rejected before the new boolean field is read.
 
+Optimistic local writes use `syncer_rs_optimistic_record` and
+`syncer_rs_optimistic_receive`. Record returns the envelope JSON and the
+version-vector snapshot JSON; persist both in the same Drift/SQLite
+transaction as the application row. Receive acknowledges an incoming
+envelope against a durable checkpoint and returns typed codes:
+`SYNCER_RS_OPT_ERR_CONFLICT`, `SYNCER_RS_OPT_ERR_MISSING_REPLICA`, and
+`SYNCER_RS_OPT_ERR_STALE_VECTOR`. Concurrent clocks are never merged.
+Diagnostics never include document payloads or secrets.
+
+Rust desktop hosts can call the same functions without FFI:
+
+```rust
+use syncer_rs::{receive_and_ack, record_upsert, VersionVector};
+
+let write = record_upsert("notes/42", "mutation-1", "desktop", &VersionVector::new(), payload)?;
+let (envelope, snapshot) = write.into_persistable();
+// persist envelope + snapshot in one local transaction
+let ack = receive_and_ack(&envelope, &checkpoint)?;
+```
+
 The release library is:
 
 - macOS: `target/release/libsyncer_rs.dylib`

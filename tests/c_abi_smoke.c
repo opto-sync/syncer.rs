@@ -29,5 +29,34 @@ int main(void) {
     }
 
     syncer_rs_free(merged);
+
+    char *envelope = NULL;
+    char *snapshot = NULL;
+    int recorded = syncer_rs_optimistic_record(
+        "notes/42",
+        "mutation-3",
+        "desktop",
+        "{\"phone\":2}",
+        "{\"text\":\"draft\"}",
+        &envelope,
+        &snapshot
+    );
+    if (recorded != SYNCER_RS_OPT_OK || envelope == NULL || snapshot == NULL) {
+        fputs("optimistic record failed\n", stderr);
+        return EXIT_FAILURE;
+    }
+
+    char *next = NULL;
+    int received = syncer_rs_optimistic_receive(envelope, "{\"phone\":2}", &next);
+    if (received != SYNCER_RS_OPT_OK || next == NULL) {
+        fputs("optimistic receive failed\n", stderr);
+        syncer_rs_free(envelope);
+        syncer_rs_free(snapshot);
+        return EXIT_FAILURE;
+    }
+
+    syncer_rs_free(envelope);
+    syncer_rs_free(snapshot);
+    syncer_rs_free(next);
     return status;
 }

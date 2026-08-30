@@ -57,6 +57,34 @@ void syncer_rs_free(char *result);
 /* Static "major.minor.patch" string. Do not free. */
 const char *syncer_rs_version(void);
 
+/*
+ * Optimistic writes for Flutter/Dart FFI and Rust desktop hosts.
+ * envelope_out and snapshot_out MUST be persisted in one local transaction.
+ * Release returned strings with syncer_rs_free. Diagnostics never include
+ * document payloads or secrets.
+ */
+#define SYNCER_RS_OPT_OK 0
+#define SYNCER_RS_OPT_ERR_CONFLICT 1
+#define SYNCER_RS_OPT_ERR_MISSING_REPLICA 2
+#define SYNCER_RS_OPT_ERR_STALE_VECTOR 3
+#define SYNCER_RS_OPT_ERR_INVALID 4
+#define SYNCER_RS_OPT_ERR_PANIC 5
+
+int syncer_rs_optimistic_record(
+    const char *document_id,
+    const char *mutation_id,
+    const char *replica_id,
+    const char *clock_json,
+    const char *payload_json,
+    char **envelope_out,
+    char **snapshot_out
+);
+int syncer_rs_optimistic_receive(
+    const char *envelope_json,
+    const char *checkpoint_json,
+    char **checkpoint_out
+);
+
 #ifdef __cplusplus
 }
 #endif
