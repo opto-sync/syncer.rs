@@ -1,6 +1,6 @@
 [package]
 name = "syncer-rs"
-version = "0.3.1"
+version = "0.4.0"
 edition = "2024"
 license = "MIT"
 description = "A Rust-native JSON reconciliation core for native, C ABI, and WebAssembly callers"
@@ -34,6 +34,7 @@ js-sys = { version = "0.3", optional = true }
 
 [dev-dependencies]
 pretty_assertions = "1"
+serde_json = { version = "1", features = ["preserve_order"] }
 
 [profile.release]
 lto = true
