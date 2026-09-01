@@ -6,8 +6,22 @@ use std::ptr;
 
 use crate::{
     ArrayMergeStrategy, CausalDisposition, CausalEnvelope, CausalEnvelopeError, MergeError,
-    MergeOptions, VERSION, VersionVector, VersionVectorError, merge_optional_json,
+    MergeOptions, OptimisticError, VERSION, VersionVector, VersionVectorError, merge_optional_json,
+    receive_and_ack, record_upsert,
 };
+
+/// Success from an optimistic FFI call.
+pub const SYNCER_RS_OPT_OK: i32 = 0;
+/// Concurrent clocks; the host must resolve before acknowledging.
+pub const SYNCER_RS_OPT_ERR_CONFLICT: i32 = 1;
+/// Replica id is invalid or the envelope clock has no actor counter.
+pub const SYNCER_RS_OPT_ERR_MISSING_REPLICA: i32 = 2;
+/// Incoming clock is behind the checkpoint, or a stored pair drifted.
+pub const SYNCER_RS_OPT_ERR_STALE_VECTOR: i32 = 3;
+/// JSON, UTF-8, null pointer, or other input validation failed.
+pub const SYNCER_RS_OPT_ERR_INVALID: i32 = 4;
+/// The Rust side panicked; treat as a failed call.
+pub const SYNCER_RS_OPT_ERR_PANIC: i32 = 5;
 
 /// Success from a typed causal FFI call.
 pub const SYNCER_RS_OK: i32 = 0;
@@ -188,8 +202,8 @@ unsafe fn options_from_ffi(pointer: *const SyncerRsOptions) -> Result<MergeOptio
 /// # Safety
 ///
 /// `pointer` must be null or a live pointer returned by a `syncer_rs_merge_*`
-/// or `syncer_rs_causal_*` function from this exact library instance. It must
-/// not have been freed previously.
+/// `syncer_rs_optimistic_*`, or `syncer_rs_causal_*` function from this exact
+/// library instance. It must not have been freed previously.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn syncer_rs_free(pointer: *mut c_char) {
     if !pointer.is_null() {
@@ -207,6 +221,29 @@ pub extern "C" fn syncer_rs_version() -> *const c_char {
 
 const _: &str = VERSION;
 
+fn required_utf8(pointer: *const c_char) -> Result<String, i32> {
+    if pointer.is_null() {
+        return Err(SYNCER_RS_OPT_ERR_INVALID);
+    }
+    // SAFETY: The caller promises a readable NUL-terminated C string.
+    unsafe { CStr::from_ptr(pointer) }
+        .to_str()
+        .map(str::to_owned)
+        .map_err(|_| SYNCER_RS_OPT_ERR_INVALID)
+}
+
+fn write_out(out: *mut *mut c_char, message: &str) -> Result<(), i32> {
+    if out.is_null() {
+        return Err(SYNCER_RS_OPT_ERR_INVALID);
+    }
+    let encoded = CString::new(message).map_err(|_| SYNCER_RS_OPT_ERR_INVALID)?;
+    // SAFETY: `out` is a writable pointer supplied by the caller.
+    unsafe {
+        *out = encoded.into_raw();
+    }
+    Ok(())
+}
+
 fn write_cstring(out: *mut *mut c_char, message: &str) -> Result<(), i32> {
     if out.is_null() {
         return Ok(());
@@ -219,14 +256,122 @@ fn write_cstring(out: *mut *mut c_char, message: &str) -> Result<(), i32> {
     Ok(())
 }
 
+fn optimistic_code(error: &OptimisticError) -> i32 {
+    match error {
+        OptimisticError::Conflict { .. } => SYNCER_RS_OPT_ERR_CONFLICT,
+        OptimisticError::MissingReplica { .. } => SYNCER_RS_OPT_ERR_MISSING_REPLICA,
+        OptimisticError::StaleVector => SYNCER_RS_OPT_ERR_STALE_VECTOR,
+        OptimisticError::Envelope(_) | OptimisticError::VersionVector(_) => {
+            SYNCER_RS_OPT_ERR_INVALID
+        }
+    }
+}
+
 fn clear_cstring_output(out: *mut *mut c_char) {
     if !out.is_null() {
-        // SAFETY: Each public causal FFI function requires a non-null output
-        // pointer to reference writable storage for one char pointer.
+        // SAFETY: Each public FFI function requires a non-null output pointer
+        // to reference writable storage for one char pointer.
         unsafe {
             *out = ptr::null_mut();
         }
     }
+}
+
+fn catch_optimistic(work: impl FnOnce() -> Result<i32, i32>) -> i32 {
+    catch_unwind(AssertUnwindSafe(work))
+        .unwrap_or(Ok(SYNCER_RS_OPT_ERR_PANIC))
+        .unwrap_or_else(|code| code)
+}
+
+/// Records an optimistic upsert for Flutter/Dart FFI and Rust desktop hosts.
+///
+/// On success, `envelope_out` and `snapshot_out` receive JSON that must be
+/// persisted in the same local transaction. Release both with
+/// [`syncer_rs_free`]. Diagnostics name error kinds only; payloads are never
+/// copied into error strings.
+///
+/// # Safety
+///
+/// Every input must be a readable NUL-terminated C string. Output pointers
+/// must be writable for the duration of the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn syncer_rs_optimistic_record(
+    document_id: *const c_char,
+    mutation_id: *const c_char,
+    replica_id: *const c_char,
+    clock_json: *const c_char,
+    payload_json: *const c_char,
+    envelope_out: *mut *mut c_char,
+    snapshot_out: *mut *mut c_char,
+) -> i32 {
+    clear_cstring_output(envelope_out);
+    clear_cstring_output(snapshot_out);
+    catch_optimistic(|| {
+        if envelope_out.is_null() || snapshot_out.is_null() || envelope_out == snapshot_out {
+            return Err(SYNCER_RS_OPT_ERR_INVALID);
+        }
+        let document_id = required_utf8(document_id)?;
+        let mutation_id = required_utf8(mutation_id)?;
+        let replica_id = required_utf8(replica_id)?;
+        let clock_json = required_utf8(clock_json)?;
+        let payload_json = required_utf8(payload_json)?;
+        let clock: VersionVector =
+            serde_json::from_str(&clock_json).map_err(|_| SYNCER_RS_OPT_ERR_INVALID)?;
+        let payload: serde_json::Value =
+            serde_json::from_str(&payload_json).map_err(|_| SYNCER_RS_OPT_ERR_INVALID)?;
+        let write = record_upsert(document_id, mutation_id, replica_id, &clock, payload)
+            .map_err(|error| optimistic_code(&error))?;
+        let envelope =
+            serde_json::to_string(write.envelope()).map_err(|_| SYNCER_RS_OPT_ERR_INVALID)?;
+        let snapshot =
+            serde_json::to_string(write.snapshot()).map_err(|_| SYNCER_RS_OPT_ERR_INVALID)?;
+        write_out(envelope_out, &envelope)?;
+        if let Err(code) = write_out(snapshot_out, &snapshot) {
+            // SAFETY: write_out just stored a library-owned CString here.
+            unsafe {
+                let leaked = *envelope_out;
+                *envelope_out = ptr::null_mut();
+                if !leaked.is_null() {
+                    drop(CString::from_raw(leaked));
+                }
+            }
+            return Err(code);
+        }
+        Ok(SYNCER_RS_OPT_OK)
+    })
+}
+
+/// Receives an envelope against a durable checkpoint JSON object.
+///
+/// On Apply or Duplicate, writes the next checkpoint to `checkpoint_out`.
+/// Concurrent clocks return [`SYNCER_RS_OPT_ERR_CONFLICT`] without merging.
+/// Stale clocks return [`SYNCER_RS_OPT_ERR_STALE_VECTOR`]. Release
+/// `checkpoint_out` with [`syncer_rs_free`].
+///
+/// # Safety
+///
+/// Same pointer contract as [`syncer_rs_optimistic_record`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn syncer_rs_optimistic_receive(
+    envelope_json: *const c_char,
+    checkpoint_json: *const c_char,
+    checkpoint_out: *mut *mut c_char,
+) -> i32 {
+    clear_cstring_output(checkpoint_out);
+    catch_optimistic(|| {
+        let envelope_json = required_utf8(envelope_json)?;
+        let checkpoint_json = required_utf8(checkpoint_json)?;
+        let envelope: CausalEnvelope<serde_json::Value> =
+            serde_json::from_str(&envelope_json).map_err(|_| SYNCER_RS_OPT_ERR_INVALID)?;
+        let checkpoint: VersionVector =
+            serde_json::from_str(&checkpoint_json).map_err(|_| SYNCER_RS_OPT_ERR_INVALID)?;
+        let ack =
+            receive_and_ack(&envelope, &checkpoint).map_err(|error| optimistic_code(&error))?;
+        let encoded =
+            serde_json::to_string(ack.checkpoint()).map_err(|_| SYNCER_RS_OPT_ERR_INVALID)?;
+        write_out(checkpoint_out, &encoded)?;
+        Ok(SYNCER_RS_OPT_OK)
+    })
 }
 
 fn required_string(pointer: *const c_char) -> Result<String, i32> {
