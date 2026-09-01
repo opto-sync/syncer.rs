@@ -219,6 +219,16 @@ fn write_cstring(out: *mut *mut c_char, message: &str) -> Result<(), i32> {
     Ok(())
 }
 
+fn clear_cstring_output(out: *mut *mut c_char) {
+    if !out.is_null() {
+        // SAFETY: Each public causal FFI function requires a non-null output
+        // pointer to reference writable storage for one char pointer.
+        unsafe {
+            *out = ptr::null_mut();
+        }
+    }
+}
+
 fn required_string(pointer: *const c_char) -> Result<String, i32> {
     if pointer.is_null() {
         return Err(SYNCER_RS_ERR_NULL);
@@ -285,6 +295,7 @@ pub unsafe extern "C" fn syncer_rs_causal_validate(
     envelope_json: *const c_char,
     error_out: *mut *mut c_char,
 ) -> i32 {
+    clear_cstring_output(error_out);
     catch_causal(|| {
         let json = required_string(envelope_json)?;
         match parse_envelope(&json) {
@@ -312,6 +323,7 @@ pub unsafe extern "C" fn syncer_rs_causal_disposition(
     disposition_out: *mut i32,
     error_out: *mut *mut c_char,
 ) -> i32 {
+    clear_cstring_output(error_out);
     catch_causal(|| {
         if disposition_out.is_null() {
             return Err(SYNCER_RS_ERR_NULL);
@@ -353,6 +365,8 @@ pub unsafe extern "C" fn syncer_rs_causal_acknowledge(
     checkpoint_out: *mut *mut c_char,
     error_out: *mut *mut c_char,
 ) -> i32 {
+    clear_cstring_output(checkpoint_out);
+    clear_cstring_output(error_out);
     catch_causal(|| {
         if checkpoint_out.is_null() {
             return Err(SYNCER_RS_ERR_NULL);

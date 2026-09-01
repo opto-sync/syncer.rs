@@ -101,11 +101,15 @@ fn sample_envelope_and_checkpoint() -> (CString, CString) {
 #[test]
 fn ffi_causal_validate_disposition_and_acknowledge() {
     let (envelope, checkpoint) = sample_envelope_and_checkpoint();
-    let mut error: *mut std::ffi::c_char = std::ptr::null_mut();
+    let stale_error = CString::new("stale error").unwrap().into_raw();
+    let mut error = stale_error;
     // SAFETY: Strings are valid and error_out is writable.
     let status = unsafe { syncer_rs_causal_validate(envelope.as_ptr(), &mut error) };
     assert_eq!(status, SYNCER_RS_OK);
     assert!(error.is_null());
+    // SAFETY: The API cleared the output slot without taking ownership of the
+    // caller's deliberately stale test allocation.
+    drop(unsafe { CString::from_raw(stale_error) });
 
     let mut disposition = -1;
     // SAFETY: Pointers remain valid for the call.
@@ -151,6 +155,33 @@ fn ffi_causal_rejects_null_and_malformed_json() {
     // SAFETY: Input is a valid C string of invalid JSON.
     let status = unsafe { syncer_rs_causal_validate(bad.as_ptr(), &mut error) };
     assert_eq!(status, SYNCER_RS_ERR_JSON);
+    if !error.is_null() {
+        unsafe { syncer_rs_free(error) };
+    }
+}
+
+#[test]
+fn ffi_causal_acknowledge_clears_checkpoint_output_before_failure() {
+    let bad = CString::new("{").unwrap();
+    let checkpoint = CString::new("{}").unwrap();
+    let stale_checkpoint = CString::new("stale checkpoint").unwrap().into_raw();
+    let mut checkpoint_out = stale_checkpoint;
+    let mut error: *mut std::ffi::c_char = std::ptr::null_mut();
+
+    // SAFETY: Inputs are valid C strings and both output slots are writable.
+    let status = unsafe {
+        syncer_rs_causal_acknowledge(
+            bad.as_ptr(),
+            checkpoint.as_ptr(),
+            &mut checkpoint_out,
+            &mut error,
+        )
+    };
+    assert_eq!(status, SYNCER_RS_ERR_JSON);
+    assert!(checkpoint_out.is_null());
+    // SAFETY: The API cleared the output slot without taking ownership of the
+    // caller's deliberately stale test allocation.
+    drop(unsafe { CString::from_raw(stale_checkpoint) });
     if !error.is_null() {
         unsafe { syncer_rs_free(error) };
     }

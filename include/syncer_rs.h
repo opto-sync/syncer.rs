@@ -77,7 +77,9 @@ const char *syncer_rs_version(void);
  * Causal envelopes are merge+ordering only. Desktop lifecycle and SQLite
  * checkpoints live in opto-sync-clients/desktop-rust, not here.
  *
- * error_out / checkpoint_out strings must be released with syncer_rs_free.
+ * Each non-null char ** output is initialized to NULL before validation.
+ * Successful checkpoint_out and populated error_out strings must be released
+ * with syncer_rs_free.
  */
 int syncer_rs_causal_validate(const char *envelope_json, char **error_out);
 int syncer_rs_causal_disposition(
