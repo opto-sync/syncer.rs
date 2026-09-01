@@ -22,8 +22,10 @@ in `AGENTS.md`: while the crate is `0.x`, a breaking change takes a minor bump.
 ### Compatibility
 
 - Existing merge functions and ABI v2 options retain their signatures and
-  semantics. The new causal and optimistic exports are additive; consumers
-  only need to rebuild bindings when they opt into the new functions.
+  semantics; existing Rust and WebAssembly behavior is also unchanged. The
+  new causal and optimistic exports are additive, so consumers only need to
+  rebuild bindings when they opt into the new functions.
+- Cargo and Zed package versions are aligned at `0.4.0`.
 
 ## 0.3.0
 
