@@ -60,6 +60,7 @@ const char *syncer_rs_version(void);
 /*
  * Optimistic writes for Flutter/Dart FFI and Rust desktop hosts.
  * envelope_out and snapshot_out MUST be persisted in one local transaction.
+ * Each non-null char ** output is initialized to NULL before validation.
  * Release returned strings with syncer_rs_free. Diagnostics never include
  * document payloads or secrets.
  */
@@ -83,6 +84,44 @@ int syncer_rs_optimistic_receive(
     const char *envelope_json,
     const char *checkpoint_json,
     char **checkpoint_out
+);
+
+#define SYNCER_RS_OK 0
+#define SYNCER_RS_ERR_NULL 1
+#define SYNCER_RS_ERR_UTF8 2
+#define SYNCER_RS_ERR_JSON 3
+#define SYNCER_RS_ERR_SCHEMA 4
+#define SYNCER_RS_ERR_DOCUMENT 5
+#define SYNCER_RS_ERR_MUTATION 6
+#define SYNCER_RS_ERR_ACTOR 7
+#define SYNCER_RS_ERR_VECTOR 8
+#define SYNCER_RS_ERR_PANIC 9
+
+#define SYNCER_RS_DISP_DUPLICATE 0
+#define SYNCER_RS_DISP_STALE 1
+#define SYNCER_RS_DISP_APPLY 2
+#define SYNCER_RS_DISP_CONCURRENT 3
+
+/*
+ * Causal envelopes are merge+ordering only. Desktop lifecycle and SQLite
+ * checkpoints live in opto-sync-clients/desktop-rust, not here.
+ *
+ * Each non-null char ** output is initialized to NULL before validation.
+ * Successful checkpoint_out and populated error_out strings must be released
+ * with syncer_rs_free.
+ */
+int syncer_rs_causal_validate(const char *envelope_json, char **error_out);
+int syncer_rs_causal_disposition(
+    const char *envelope_json,
+    const char *checkpoint_json,
+    int *disposition_out,
+    char **error_out
+);
+int syncer_rs_causal_acknowledge(
+    const char *envelope_json,
+    const char *checkpoint_json,
+    char **checkpoint_out,
+    char **error_out
 );
 
 #ifdef __cplusplus

@@ -14,6 +14,16 @@ in `AGENTS.md`: while the crate is `0.x`, a breaking change takes a minor bump.
   envelopes are never acknowledged until the host persists a resolution.
 - C ABI `syncer_rs_optimistic_record` / `syncer_rs_optimistic_receive` for
   Dart FFI. Diagnostics name error kinds only; payloads are never logged.
+- Additive typed causal C ABI for envelope validation, disposition, and
+  checkpoint acknowledgement, including stable error and disposition codes.
+- All causal and optimistic `char **` outputs are cleared before validation,
+  so failed calls cannot expose stale caller pointers as successful results.
+
+### Compatibility
+
+- Existing merge functions and ABI v2 options retain their signatures and
+  semantics. The new causal and optimistic exports are additive; consumers
+  only need to rebuild bindings when they opt into the new functions.
 
 ## 0.3.0
 
