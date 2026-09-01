@@ -3,6 +3,22 @@
 All notable changes to `syncer-rs`. Versions follow the repository convention
 in `AGENTS.md`: while the crate is `0.x`, a breaking change takes a minor bump.
 
+## 0.4.0
+
+### Added
+
+- Additive typed causal C ABI for envelope validation, disposition, and
+  checkpoint acknowledgement, including stable error and disposition codes.
+- Caller-output hardening: every causal `char **` output is cleared before
+  validation, so a failed call cannot expose a stale pointer as a result.
+
+### Compatibility
+
+- Existing Rust, merge C ABI v2, and WebAssembly signatures and behavior are
+  unchanged. Consumers only need to rebuild bindings when they opt into the
+  new causal functions.
+- Cargo and Zed package versions are aligned at `0.4.0`.
+
 ## 0.3.0
 
 ### Added
