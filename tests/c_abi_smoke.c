@@ -33,6 +33,37 @@ int main(void) {
         return status;
     }
 
+    char *optimistic_envelope = (char *)1;
+    char *snapshot = NULL;
+    int recorded = syncer_rs_optimistic_record(
+        "notes/42",
+        "mutation-3",
+        "desktop",
+        "{\"phone\":2}",
+        "{\"text\":\"draft\"}",
+        &optimistic_envelope,
+        &snapshot
+    );
+    if (recorded != SYNCER_RS_OPT_OK || optimistic_envelope == NULL ||
+        snapshot == NULL) {
+        fputs("optimistic record failed or left stale outputs\n", stderr);
+        return EXIT_FAILURE;
+    }
+
+    char *next = (char *)1;
+    int received = syncer_rs_optimistic_receive(
+        optimistic_envelope, "{\"phone\":2}", &next);
+    if (received != SYNCER_RS_OPT_OK || next == NULL) {
+        fputs("optimistic receive failed\n", stderr);
+        syncer_rs_free(optimistic_envelope);
+        syncer_rs_free(snapshot);
+        return EXIT_FAILURE;
+    }
+
+    syncer_rs_free(optimistic_envelope);
+    syncer_rs_free(snapshot);
+    syncer_rs_free(next);
+
     const char *envelope =
         "{\"schemaVersion\":\"opto-sync.causal.v1\","
         "\"documentId\":\"documents/example\","

@@ -36,7 +36,7 @@ A delete is an ordered tombstone:
 }
 ```
 
-The constructor increments the originating replica's counter and snapshots the resulting vector into the envelope. The caller persists both the envelope and its local `VersionVector` in the same local transaction as the optimistic write.
+The constructor increments the originating replica's counter and snapshots the resulting vector into the envelope. The caller persists both the envelope and its local `VersionVector` in the same local transaction as the optimistic write. The `optimistic` module returns that pair as [`OptimisticWrite`](../src/optimistic.rs) so a Flutter or Rust desktop host cannot increment the clock without also taking the snapshot.
 
 ## Receiver algorithm
 
@@ -64,3 +64,5 @@ Long-lived installations should rotate or compact inactive replica IDs at the ap
 ## Relationship to optimistic writes
 
 A local-first client should render its rebased `localView`, not the last remote payload. The causal envelope accompanies each queued mutation and provides ordering/deduplication metadata; it does not replace the queue, checkpoint, tombstone retention, or JSON merge policy.
+
+`record_upsert` / `record_delete` produce the persistable pair. `receive_and_ack` applies the receiver algorithm and refuses to merge a concurrent clock (`Conflict`) until `acknowledge_resolved` runs after the product has written the resolved value. Flutter/Dart hosts the same functions through `syncer_rs_optimistic_record` and `syncer_rs_optimistic_receive` in `include/syncer_rs.h`.

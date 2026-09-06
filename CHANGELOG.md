@@ -7,16 +7,24 @@ in `AGENTS.md`: while the crate is `0.x`, a breaking change takes a minor bump.
 
 ### Added
 
+- Pure `optimistic` module for Flutter and Rust desktop hosts: record an
+  upsert or delete as the `(envelope, version-vector snapshot)` pair that
+  must be persisted in the same local transaction.
+- Typed errors `Conflict`, `MissingReplica`, and `StaleVector`. Concurrent
+  envelopes are never acknowledged until the host persists a resolution.
+- C ABI `syncer_rs_optimistic_record` / `syncer_rs_optimistic_receive` for
+  Dart FFI. Diagnostics name error kinds only; payloads are never logged.
 - Additive typed causal C ABI for envelope validation, disposition, and
   checkpoint acknowledgement, including stable error and disposition codes.
-- Caller-output hardening: every causal `char **` output is cleared before
-  validation, so a failed call cannot expose a stale pointer as a result.
+- All causal and optimistic `char **` outputs are cleared before validation,
+  so failed calls cannot expose stale caller pointers as successful results.
 
 ### Compatibility
 
-- Existing Rust, merge C ABI v2, and WebAssembly signatures and behavior are
-  unchanged. Consumers only need to rebuild bindings when they opt into the
-  new causal functions.
+- Existing merge functions and ABI v2 options retain their signatures and
+  semantics; existing Rust and WebAssembly behavior is also unchanged. The
+  new causal and optimistic exports are additive, so consumers only need to
+  rebuild bindings when they opt into the new functions.
 - Cargo and Zed package versions are aligned at `0.4.0`.
 
 ## 0.3.0
