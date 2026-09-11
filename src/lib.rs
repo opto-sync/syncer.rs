@@ -8,6 +8,7 @@
 mod canonical;
 pub mod causal;
 mod core;
+pub mod functional;
 pub mod observability;
 pub mod optimistic;
 pub mod schema;
@@ -25,6 +26,10 @@ pub use crate::causal::{
 };
 pub use crate::core::{
     ArrayMergeStrategy, MergeError, MergeOptions, merge_json, merge_optional_json, merge_values,
+};
+pub use crate::functional::{
+    CausalWrite, VectorTransition, acknowledged_checkpoint, causal_delete, causal_upsert,
+    incremented_clock, independent_clock, merged_clock, observed_clock,
 };
 pub use crate::observability::{
     MERGE_OBSERVATION_JSON_SCHEMA, MERGE_OBSERVATION_SCHEMA_ID, MERGE_OBSERVATION_SCHEMA_VERSION,
