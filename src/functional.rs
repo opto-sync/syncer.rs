@@ -5,9 +5,7 @@
 //! independent storage so callers can express `next = transform(current)`
 //! without a helper mutating caller-owned state.
 
-use crate::{
-    CausalEnvelope, CausalEnvelopeError, VersionVector, VersionVectorError,
-};
+use crate::{CausalEnvelope, CausalEnvelopeError, VersionVector, VersionVectorError};
 
 /// Result of advancing or joining a vector without mutating the input vector.
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -101,12 +99,7 @@ pub fn causal_delete<T>(
     clock: &VersionVector,
 ) -> Result<CausalWrite<T>, CausalEnvelopeError> {
     let mut next_clock = independent_clock(clock)?;
-    let envelope = CausalEnvelope::delete(
-        document_id,
-        mutation_id,
-        replica_id,
-        &mut next_clock,
-    )?;
+    let envelope = CausalEnvelope::delete(document_id, mutation_id, replica_id, &mut next_clock)?;
     Ok(CausalWrite {
         envelope,
         next_clock,
@@ -183,16 +176,12 @@ mod tests {
     fn acknowledging_returns_new_checkpoint_without_touching_source() {
         let checkpoint = vector(&[("desktop", 1)]);
         let source = vector(&[("desktop", 1)]);
-        let write = causal_delete::<serde_json::Value>(
-            "notes/42",
-            "mutation-2",
-            "desktop",
-            &source,
-        )
-        .expect("delete");
+        let write =
+            causal_delete::<serde_json::Value>("notes/42", "mutation-2", "desktop", &source)
+                .expect("delete");
 
-        let transition = acknowledged_checkpoint(&write.envelope, &checkpoint)
-            .expect("acknowledge");
+        let transition =
+            acknowledged_checkpoint(&write.envelope, &checkpoint).expect("acknowledge");
         assert!(transition.changed);
         assert_eq!(checkpoint.get("desktop"), 1);
         assert_eq!(transition.next.get("desktop"), 2);
