@@ -121,23 +121,17 @@ pub fn merge_optional_json(
     incoming: Option<&str>,
     options: &MergeOptions,
 ) -> Result<Option<String>, MergeError> {
-    let mut base_value = match base {
-        Some(json) => Some(parse_json(json).map_err(MergeError::InvalidBase)?),
-        None => None,
-    };
-    let incoming_value = match incoming {
-        Some(json) => Some(parse_json(json).map_err(MergeError::InvalidIncoming)?),
-        None => None,
-    };
+    let base_value = base
+        .map(|json| parse_json(json).map_err(MergeError::InvalidBase))
+        .transpose()?;
+    let incoming_value = incoming
+        .map(|json| parse_json(json).map_err(MergeError::InvalidIncoming))
+        .transpose()?;
 
-    let merged = match (&mut base_value, incoming_value.as_ref()) {
+    let merged = match (base_value, incoming_value) {
         (None, None) => return Ok(None),
-        (Some(value), None) => value.clone(),
-        (None, Some(value)) => value.clone(),
-        (Some(base), Some(incoming)) => {
-            merge_value(base, incoming, options, 0);
-            base.clone()
-        }
+        (Some(value), None) | (None, Some(value)) => value,
+        (Some(base), Some(incoming)) => merge_values(base, &incoming, options),
     };
 
     crate::canonical::to_canonical_string(&merged)
@@ -146,6 +140,9 @@ pub fn merge_optional_json(
 }
 
 /// Reconciles already-deserialized values without any host-language boundary.
+///
+/// `base` is taken by value and returned reconciled; nothing the caller still
+/// holds is modified.
 pub fn merge_values(mut base: Value, incoming: &Value, options: &MergeOptions) -> Value {
     merge_value(&mut base, incoming, options, 0);
     base
@@ -159,6 +156,14 @@ fn parse_json(json: &str) -> Result<Value, serde_json::Error> {
     Ok(value)
 }
 
+// HOT-PATH (imperative by design): `merge_value` / `merge_objects` /
+// `merge_arrays` are the reconciliation kernel behind every `merge_json`,
+// C ABI and WebAssembly call; they walk the owned `base` tree in place because
+// rebuilding each object (`IndexMap`) and array node as a new value would add
+// one allocation per node on the only path this crate exists for, and the
+// crate is tuned for byte-parity with a C engine. The mutation is confined to
+// these three private functions over the `base` that `merge_values` receives
+// by value, and callers get an owned `Value` (or a canonical `String`) back.
 fn merge_value(base: &mut Value, incoming: &Value, options: &MergeOptions, depth: u32) {
     if options.resolve_by_timestamp && should_reject_by_timestamp(base, incoming, options) {
         return;
@@ -319,6 +324,11 @@ fn identity_values_equal(left: &Value, right: &Value) -> bool {
     }
 }
 
+// HOT-PATH (imperative by design): structural equality is evaluated for every
+// (base, incoming) candidate pair under the `Union` and `MergeByKey` strategies;
+// the explicit work stack is one allocation and, unlike recursion, cannot
+// overflow on documents parsed with `unbounded_depth`. The mutation is confined
+// to the local stack, and callers receive a `bool`.
 fn values_deep_equal(left: &Value, right: &Value) -> bool {
     let mut stack = vec![(left, right)];
 
@@ -420,42 +430,49 @@ fn resolve_selector<'a>(object: &'a Map<String, Value>, selector: &str) -> Optio
         return object.get(selector);
     };
 
-    let mut segments = pointer.split('/');
-    let first = decode_pointer_segment(segments.next()?)?;
-    let mut current = object.get(&first)?;
-
-    for raw_segment in segments {
-        let segment = decode_pointer_segment(raw_segment)?;
-        current = match current {
-            Value::Object(object) => object.get(&segment)?,
-            Value::Array(array) => {
-                if segment.len() > 1 && segment.starts_with('0') {
-                    return None;
-                }
-                array.get(segment.parse::<usize>().ok()?)?
-            }
-            _ => return None,
-        };
-    }
-
-    Some(current)
+    let (first, rest) = pointer
+        .split_once('/')
+        .map_or((pointer, None), |(first, rest)| (first, Some(rest)));
+    let root = object.get(&decode_pointer_segment(first)?)?;
+    rest.into_iter().flat_map(|rest| rest.split('/')).try_fold(
+        root,
+        |current, raw_segment| -> Option<&'a Value> {
+            step_pointer(current, &decode_pointer_segment(raw_segment)?)
+        },
+    )
 }
 
-fn decode_pointer_segment(segment: &str) -> Option<String> {
-    let mut decoded = String::with_capacity(segment.len());
-    let mut characters = segment.chars();
-    while let Some(character) = characters.next() {
-        if character != '~' {
-            decoded.push(character);
-            continue;
+/// One JSON Pointer step: an object member, or an array index without leading zeros.
+fn step_pointer<'a>(current: &'a Value, segment: &str) -> Option<&'a Value> {
+    match current {
+        Value::Object(object) => object.get(segment),
+        Value::Array(array) => {
+            if segment.len() > 1 && segment.starts_with('0') {
+                return None;
+            }
+            array.get(segment.parse::<usize>().ok()?)
         }
-        match characters.next()? {
-            '0' => decoded.push('~'),
-            '1' => decoded.push('/'),
-            _ => return None,
-        }
+        _ => None,
     }
-    Some(decoded)
+}
+
+/// Decodes RFC 6901 escapes: every piece after a `~` must start with `0` or `1`.
+fn decode_pointer_segment(segment: &str) -> Option<String> {
+    segment
+        .split('~')
+        .enumerate()
+        .map(|(index, piece)| {
+            if index == 0 {
+                return Some(piece.to_owned());
+            }
+            let (escape, rest) = piece.split_at_checked(1)?;
+            match escape {
+                "0" => Some(format!("~{rest}")),
+                "1" => Some(format!("/{rest}")),
+                _ => None,
+            }
+        })
+        .collect()
 }
 
 fn compare_timestamps(base: &Value, incoming: &Value) -> Option<Ordering> {

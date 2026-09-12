@@ -79,11 +79,18 @@ impl VersionVector {
     pub fn from_entries(
         entries: impl IntoIterator<Item = (String, u64)>,
     ) -> Result<Self, VersionVectorError> {
-        let mut vector = Self::new();
-        for (replica_id, counter) in entries {
-            vector.observe(&replica_id, counter)?;
-        }
-        Ok(vector)
+        // HOT-PATH (imperative by design): this runs for every vector deserialized
+        // off the wire; observing into the owned accumulator is O(n log n) whereas
+        // rebuilding a new vector per entry (`observed`) would be O(n^2) at the
+        // 1_024-replica bound. The mutation is confined to the accumulator this
+        // fold owns, and callers receive the finished immutable vector.
+        entries.into_iter().try_fold(
+            Self::new(),
+            |mut vector, (replica_id, counter)| -> Result<Self, VersionVectorError> {
+                vector.observe(&replica_id, counter)?;
+                Ok(vector)
+            },
+        )
     }
 
     /// Returns the counter observed for one replica, or zero when absent.
@@ -118,51 +125,92 @@ impl VersionVector {
     /// Returns [`VersionVectorError::CounterOverflow`] at `u64::MAX`, or a
     /// validation error when adding a new replica would exceed the bounds.
     pub fn increment(&mut self, replica_id: &str) -> Result<u64, VersionVectorError> {
-        validate_replica_id(replica_id)?;
-        if !self.entries.contains_key(replica_id) && self.entries.len() >= MAX_CAUSAL_REPLICAS {
-            return Err(VersionVectorError::TooManyReplicas {
-                maximum: MAX_CAUSAL_REPLICAS,
-            });
-        }
-        let current = self.get(replica_id);
-        let next = current
-            .checked_add(1)
-            .ok_or_else(|| VersionVectorError::CounterOverflow(replica_id.to_owned()))?;
+        let next = self.next_counter(replica_id)?;
         self.entries.insert(replica_id.to_owned(), next);
         Ok(next)
+    }
+
+    /// Returns a new vector with `replica_id` advanced, plus the assigned counter.
+    ///
+    /// `self` is never modified; the result owns fully independent storage.
+    ///
+    /// # Errors
+    ///
+    /// Same conditions as [`VersionVector::increment`].
+    pub fn incremented(&self, replica_id: &str) -> Result<(Self, u64), VersionVectorError> {
+        let next = self.next_counter(replica_id)?;
+        Ok((self.with_counter(replica_id, next), next))
     }
 
     /// Observes an explicit positive counter, retaining the larger value.
     ///
     /// Replaying an older observation is therefore idempotent.
     pub fn observe(&mut self, replica_id: &str, counter: u64) -> Result<bool, VersionVectorError> {
-        validate_replica_id(replica_id)?;
-        if counter == 0 {
-            return Err(VersionVectorError::ZeroCounter(replica_id.to_owned()));
-        }
-        if !self.entries.contains_key(replica_id) && self.entries.len() >= MAX_CAUSAL_REPLICAS {
-            return Err(VersionVectorError::TooManyReplicas {
-                maximum: MAX_CAUSAL_REPLICAS,
-            });
-        }
-        let current = self.get(replica_id);
-        let joined = join_counter(current, counter);
-        if joined == current {
+        let Some(joined) = self.joined_counter(replica_id, counter)? else {
             return Ok(false);
-        }
+        };
         self.entries.insert(replica_id.to_owned(), joined);
         Ok(true)
+    }
+
+    /// Returns a new vector that has observed `counter`, plus whether it differs
+    /// from `self`. `self` is never modified.
+    ///
+    /// # Errors
+    ///
+    /// Same conditions as [`VersionVector::observe`].
+    pub fn observed(
+        &self,
+        replica_id: &str,
+        counter: u64,
+    ) -> Result<(Self, bool), VersionVectorError> {
+        Ok(match self.joined_counter(replica_id, counter)? {
+            Some(joined) => (self.with_counter(replica_id, joined), true),
+            None => (self.clone(), false),
+        })
     }
 
     /// Merges another vector by taking the maximum counter for every replica.
     ///
     /// Returns whether the local vector changed.
     pub fn merge(&mut self, other: &Self) -> Result<bool, VersionVectorError> {
-        let mut changed = false;
-        for (replica_id, counter) in other.iter() {
-            changed |= self.observe(replica_id, counter)?;
+        other.iter().try_fold(
+            false,
+            |changed, (replica_id, counter)| -> Result<bool, VersionVectorError> {
+                Ok(changed | self.observe(replica_id, counter)?)
+            },
+        )
+    }
+
+    /// Returns the least upper bound of `self` and `other` as a new vector, plus
+    /// whether it differs from `self`. Neither input is modified.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`VersionVectorError::TooManyReplicas`] when the union of replicas
+    /// exceeds [`MAX_CAUSAL_REPLICAS`]; unlike [`VersionVector::merge`] nothing
+    /// is partially applied in that case.
+    pub fn joined(&self, other: &Self) -> Result<(Self, bool), VersionVectorError> {
+        let entries = self
+            .entries
+            .keys()
+            .chain(other.entries.keys())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .map(|replica_id| {
+                (
+                    replica_id.clone(),
+                    join_counter(self.get(replica_id), other.get(replica_id)),
+                )
+            })
+            .collect::<BTreeMap<String, u64>>();
+        if entries.len() > MAX_CAUSAL_REPLICAS {
+            return Err(VersionVectorError::TooManyReplicas {
+                maximum: MAX_CAUSAL_REPLICAS,
+            });
         }
-        Ok(changed)
+        let changed = entries != self.entries;
+        Ok((Self { entries }, changed))
     }
 
     /// Compares two vector clocks using the standard partial order.
@@ -173,20 +221,73 @@ impl VersionVector {
             .keys()
             .chain(other.entries.keys())
             .collect::<BTreeSet<_>>();
-        let mut less = false;
-        let mut greater = false;
-
-        for replica_id in replicas {
-            let local = self.get(replica_id);
-            let remote = other.get(replica_id);
-            less |= local < remote;
-            greater |= local > remote;
-            if less && greater {
-                return VersionRelation::Concurrent;
-            }
+        // `Err(())` short-circuits as soon as both directions have been seen.
+        let flags = replicas
+            .into_iter()
+            .try_fold((false, false), |(less, greater), replica_id| {
+                let local = self.get(replica_id);
+                let remote = other.get(replica_id);
+                let less = less || local < remote;
+                let greater = greater || local > remote;
+                if less && greater {
+                    Err(())
+                } else {
+                    Ok((less, greater))
+                }
+            });
+        match flags {
+            Err(()) => VersionRelation::Concurrent,
+            Ok((less, greater)) => relation_from_order_flags(less, greater),
         }
+    }
 
-        relation_from_order_flags(less, greater)
+    /// The counter `replica_id` would receive from an increment, after the
+    /// identifier and capacity checks shared by the in-place and value forms.
+    fn next_counter(&self, replica_id: &str) -> Result<u64, VersionVectorError> {
+        validate_replica_id(replica_id)?;
+        self.admit_replica(replica_id)?;
+        self.get(replica_id)
+            .checked_add(1)
+            .ok_or_else(|| VersionVectorError::CounterOverflow(replica_id.to_owned()))
+    }
+
+    /// The counter `replica_id` would hold after observing `counter`, or `None`
+    /// when the observation changes nothing.
+    fn joined_counter(
+        &self,
+        replica_id: &str,
+        counter: u64,
+    ) -> Result<Option<u64>, VersionVectorError> {
+        validate_replica_id(replica_id)?;
+        if counter == 0 {
+            return Err(VersionVectorError::ZeroCounter(replica_id.to_owned()));
+        }
+        self.admit_replica(replica_id)?;
+        let current = self.get(replica_id);
+        let joined = join_counter(current, counter);
+        Ok((joined != current).then_some(joined))
+    }
+
+    /// Rejects a replica that would push the vector past its bound.
+    fn admit_replica(&self, replica_id: &str) -> Result<(), VersionVectorError> {
+        if !self.entries.contains_key(replica_id) && self.entries.len() >= MAX_CAUSAL_REPLICAS {
+            return Err(VersionVectorError::TooManyReplicas {
+                maximum: MAX_CAUSAL_REPLICAS,
+            });
+        }
+        Ok(())
+    }
+
+    /// A new vector equal to `self` with one counter set, in independent storage.
+    fn with_counter(&self, replica_id: &str, counter: u64) -> Self {
+        Self {
+            entries: self
+                .entries
+                .iter()
+                .map(|(existing_id, existing)| (existing_id.clone(), *existing))
+                .chain([(replica_id.to_owned(), counter)])
+                .collect(),
+        }
     }
 
     /// Reports whether this vector is equal to or causally after `other`.
@@ -286,6 +387,11 @@ pub struct CausalEnvelope<T> {
 
 impl<T> CausalEnvelope<T> {
     /// Creates an upsert envelope and advances `clock` for `replica_id`.
+    ///
+    /// This is the in-place compatibility form: the envelope is built from an
+    /// immutable view of `clock` by [`CausalEnvelope::new`], and the single
+    /// assignment below is the only mutation. Hosts that keep their clock as a
+    /// value should use [`crate::functional::causal_upsert`] instead.
     pub fn upsert(
         document_id: impl Into<String>,
         mutation_id: impl Into<String>,
@@ -293,36 +399,47 @@ impl<T> CausalEnvelope<T> {
         clock: &mut VersionVector,
         payload: T,
     ) -> Result<Self, CausalEnvelopeError> {
-        Self::new(
+        let envelope = Self::new(
             document_id,
             mutation_id,
             replica_id,
             clock,
             CausalOperation::Upsert(payload),
-        )
+        )?;
+        *clock = envelope.clock.clone();
+        Ok(envelope)
     }
 
     /// Creates a delete tombstone and advances `clock` for `replica_id`.
+    ///
+    /// See [`CausalEnvelope::upsert`] for the mutation boundary; the value form
+    /// is [`crate::functional::causal_delete`].
     pub fn delete(
         document_id: impl Into<String>,
         mutation_id: impl Into<String>,
         replica_id: impl Into<String>,
         clock: &mut VersionVector,
     ) -> Result<Self, CausalEnvelopeError> {
-        Self::new(
+        let envelope = Self::new(
             document_id,
             mutation_id,
             replica_id,
             clock,
             CausalOperation::Delete,
-        )
+        )?;
+        *clock = envelope.clock.clone();
+        Ok(envelope)
     }
 
-    fn new(
+    /// Builds an envelope whose `clock` is `clock` advanced for `replica_id`.
+    ///
+    /// `clock` is only read; the envelope owns the advanced vector. The next
+    /// local clock a host must persist is exactly `envelope.clock`.
+    pub(crate) fn new(
         document_id: impl Into<String>,
         mutation_id: impl Into<String>,
         replica_id: impl Into<String>,
-        clock: &mut VersionVector,
+        clock: &VersionVector,
         operation: CausalOperation<T>,
     ) -> Result<Self, CausalEnvelopeError> {
         let document_id = document_id.into();
@@ -331,14 +448,14 @@ impl<T> CausalEnvelope<T> {
         validate_document_id(&document_id)?;
         validate_mutation_id(&mutation_id)?;
         validate_replica_id(&replica_id)?;
-        clock.increment(&replica_id)?;
+        let (clock, _counter) = clock.incremented(&replica_id)?;
 
         Ok(Self {
             schema_version: CAUSAL_SCHEMA_VERSION.to_owned(),
             document_id,
             mutation_id,
             replica_id,
-            clock: clock.clone(),
+            clock,
             operation,
         })
     }
@@ -369,11 +486,31 @@ impl<T> CausalEnvelope<T> {
 
     /// Merges this envelope's clock into a receiver after the mutation is
     /// accepted or its concurrent conflict has been resolved.
+    ///
+    /// In-place compatibility form of [`CausalEnvelope::acknowledged`]: the next
+    /// checkpoint is computed as a value and assigned once, so a rejected join
+    /// leaves `checkpoint` untouched.
     pub fn acknowledge_into(
         &self,
         checkpoint: &mut VersionVector,
     ) -> Result<bool, VersionVectorError> {
-        checkpoint.merge(&self.clock)
+        let (next, changed) = self.acknowledged(checkpoint)?;
+        *checkpoint = next;
+        Ok(changed)
+    }
+
+    /// Returns the receiver checkpoint joined with this envelope's clock as a
+    /// new vector, plus whether it differs from `checkpoint`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`VersionVectorError::TooManyReplicas`] when the joined vector
+    /// would exceed [`MAX_CAUSAL_REPLICAS`].
+    pub fn acknowledged(
+        &self,
+        checkpoint: &VersionVector,
+    ) -> Result<(VersionVector, bool), VersionVectorError> {
+        checkpoint.joined(&self.clock)
     }
 
     /// Reports whether the envelope carries a delete tombstone.
