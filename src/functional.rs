@@ -1,11 +1,15 @@
 //! Value-oriented causal helpers for hosts that prefer immutable state flow.
 //!
-//! The low-level [`crate::VersionVector`] mutation methods remain available for
-//! allocation-sensitive loops. This module deliberately rebuilds vectors into
-//! independent storage so callers can express `next = transform(current)`
-//! without a helper mutating caller-owned state.
+//! These are thin names over the value primitives on [`crate::VersionVector`]
+//! (`incremented`, `observed`, `joined`) and [`crate::CausalEnvelope`]
+//! (`acknowledged`): every helper reads its inputs and returns a vector in
+//! independent storage, so callers can express `next = transform(current)`.
+//! The in-place [`crate::VersionVector`] methods remain available for
+//! allocation-sensitive loops.
 
-use crate::{CausalEnvelope, CausalEnvelopeError, VersionVector, VersionVectorError};
+use crate::{
+    CausalEnvelope, CausalEnvelopeError, CausalOperation, VersionVector, VersionVectorError,
+};
 
 /// Result of advancing or joining a vector without mutating the input vector.
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -43,9 +47,7 @@ pub fn incremented_clock(
     clock: &VersionVector,
     replica_id: &str,
 ) -> Result<(VersionVector, u64), VersionVectorError> {
-    let mut next = independent_clock(clock)?;
-    let counter = next.increment(replica_id)?;
-    Ok((next, counter))
+    clock.incremented(replica_id)
 }
 
 /// Observes a counter and returns the next independent vector.
@@ -54,9 +56,9 @@ pub fn observed_clock(
     replica_id: &str,
     counter: u64,
 ) -> Result<VectorTransition, VersionVectorError> {
-    let mut next = independent_clock(clock)?;
-    let changed = next.observe(replica_id, counter)?;
-    Ok(VectorTransition { next, changed })
+    clock
+        .observed(replica_id, counter)
+        .map(|(next, changed)| VectorTransition { next, changed })
 }
 
 /// Joins two clocks and returns a fresh vector instead of mutating either input.
@@ -64,9 +66,9 @@ pub fn merged_clock(
     clock: &VersionVector,
     other: &VersionVector,
 ) -> Result<VectorTransition, VersionVectorError> {
-    let mut next = independent_clock(clock)?;
-    let changed = next.merge(other)?;
-    Ok(VectorTransition { next, changed })
+    clock
+        .joined(other)
+        .map(|(next, changed)| VectorTransition { next, changed })
 }
 
 /// Constructs an upsert envelope and next local clock without mutating `clock`.
@@ -77,18 +79,13 @@ pub fn causal_upsert<T>(
     clock: &VersionVector,
     payload: T,
 ) -> Result<CausalWrite<T>, CausalEnvelopeError> {
-    let mut next_clock = independent_clock(clock)?;
-    let envelope = CausalEnvelope::upsert(
+    causal_write(
         document_id,
         mutation_id,
         replica_id,
-        &mut next_clock,
-        payload,
-    )?;
-    Ok(CausalWrite {
-        envelope,
-        next_clock,
-    })
+        clock,
+        CausalOperation::Upsert(payload),
+    )
 }
 
 /// Constructs a delete envelope and next local clock without mutating `clock`.
@@ -98,8 +95,26 @@ pub fn causal_delete<T>(
     replica_id: impl Into<String>,
     clock: &VersionVector,
 ) -> Result<CausalWrite<T>, CausalEnvelopeError> {
-    let mut next_clock = independent_clock(clock)?;
-    let envelope = CausalEnvelope::delete(document_id, mutation_id, replica_id, &mut next_clock)?;
+    causal_write(
+        document_id,
+        mutation_id,
+        replica_id,
+        clock,
+        CausalOperation::Delete,
+    )
+}
+
+/// The envelope owns the advanced clock; the persisted next clock is an
+/// independent copy of it, so neither aliases `clock`.
+fn causal_write<T>(
+    document_id: impl Into<String>,
+    mutation_id: impl Into<String>,
+    replica_id: impl Into<String>,
+    clock: &VersionVector,
+    operation: CausalOperation<T>,
+) -> Result<CausalWrite<T>, CausalEnvelopeError> {
+    let envelope = CausalEnvelope::new(document_id, mutation_id, replica_id, clock, operation)?;
+    let next_clock = envelope.clock.clone();
     Ok(CausalWrite {
         envelope,
         next_clock,
@@ -111,9 +126,9 @@ pub fn acknowledged_checkpoint<T>(
     envelope: &CausalEnvelope<T>,
     checkpoint: &VersionVector,
 ) -> Result<VectorTransition, VersionVectorError> {
-    let mut next = independent_clock(checkpoint)?;
-    let changed = envelope.acknowledge_into(&mut next)?;
-    Ok(VectorTransition { next, changed })
+    envelope
+        .acknowledged(checkpoint)
+        .map(|(next, changed)| VectorTransition { next, changed })
 }
 
 #[cfg(test)]

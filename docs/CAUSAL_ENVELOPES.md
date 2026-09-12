@@ -45,7 +45,7 @@ The constructor increments the originating replica's counter and snapshots the r
 3. Handle the result:
    - `duplicate`: acknowledge idempotently without applying the payload again.
    - `stale`: ignore the payload but retain normal mutation-id audit data.
-   - `apply`: apply/delete the document, then call `acknowledge_into(checkpoint)` in the same durable transaction.
+   - `apply`: apply/delete the document, then call `acknowledge_into(checkpoint)` (or take the value form, `acknowledged(&checkpoint)`) in the same durable transaction.
    - `resolveConcurrent`: run the product's conflict policy, persist the resolved value, then acknowledge the envelope clock.
 4. Return the durable checkpoint to the client.
 

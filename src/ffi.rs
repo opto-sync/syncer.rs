@@ -523,18 +523,21 @@ pub unsafe extern "C" fn syncer_rs_causal_acknowledge(
                 return Err(code);
             }
         };
-        let mut checkpoint = match parse_checkpoint(&required_string(checkpoint_json)?) {
+        let checkpoint = match parse_checkpoint(&required_string(checkpoint_json)?) {
             Ok(checkpoint) => checkpoint,
             Err(code) => {
                 let _ = write_cstring(error_out, "causal checkpoint failed validation");
                 return Err(code);
             }
         };
-        if let Err(error) = envelope.acknowledge_into(&mut checkpoint) {
-            let _ = write_cstring(error_out, &error.to_string());
-            return Err(vector_error_code(error));
-        }
-        let encoded = serde_json::to_string(&checkpoint).map_err(|_| SYNCER_RS_ERR_JSON)?;
+        let (acknowledged, _changed) = match envelope.acknowledged(&checkpoint) {
+            Ok(transition) => transition,
+            Err(error) => {
+                let _ = write_cstring(error_out, &error.to_string());
+                return Err(vector_error_code(error));
+            }
+        };
+        let encoded = serde_json::to_string(&acknowledged).map_err(|_| SYNCER_RS_ERR_JSON)?;
         write_cstring(checkpoint_out, &encoded)?;
         Ok(SYNCER_RS_OK)
     })

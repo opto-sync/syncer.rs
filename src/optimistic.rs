@@ -276,16 +276,12 @@ fn record_with<T>(
     operation: CausalOperation<T>,
 ) -> Result<OptimisticWrite<T>, OptimisticError> {
     let prior = local_clock.get(&replica_id);
-    let mut clock = local_clock.clone();
-    let envelope = match operation {
-        CausalOperation::Upsert(payload) => {
-            CausalEnvelope::upsert(document_id, mutation_id, replica_id, &mut clock, payload)
-        }
-        CausalOperation::Delete => {
-            CausalEnvelope::delete(document_id, mutation_id, replica_id, &mut clock)
-        }
-    }
-    .map_err(map_envelope_error)?;
+    let envelope =
+        CausalEnvelope::new(document_id, mutation_id, replica_id, local_clock, operation)
+            .map_err(map_envelope_error)?;
+    // The snapshot persisted next to the envelope is an independent copy of the
+    // advanced clock; the two never alias.
+    let clock = envelope.clock.clone();
 
     if envelope.clock.relation(&clock) != VersionRelation::Equal {
         return Err(OptimisticError::StaleVector);
@@ -305,11 +301,10 @@ fn join_checkpoint<T>(
     envelope: &CausalEnvelope<T>,
     checkpoint: &VersionVector,
 ) -> Result<VersionVector, OptimisticError> {
-    let mut next = checkpoint.clone();
     envelope
-        .acknowledge_into(&mut next)
-        .map_err(map_vector_error)?;
-    Ok(next)
+        .acknowledged(checkpoint)
+        .map(|(next, _changed)| next)
+        .map_err(map_vector_error)
 }
 
 fn map_envelope_error(error: CausalEnvelopeError) -> OptimisticError {

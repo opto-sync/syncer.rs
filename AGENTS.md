@@ -17,3 +17,5 @@ github.com/sonus-auris/sonus-auris-sync
 github.com/daedalus-fab/daedalus-sync
 github.com/fiducia-cloud/fiducia-sync
 github.com/zed-pkg/zed-sync (a bit meta since zed is package manager for opto-sync etc, so this one is very important to keep in mind)
+
+- Build values, don't mutate them: functions return new values instead of filling `&mut` parameters or caller-owned state. Public in-place methods that consumers already depend on (`CausalEnvelope::upsert`/`delete`/`acknowledge_into`) stay as thin boundaries over the value primitives (`VersionVector::incremented`/`observed`/`joined`, `CausalEnvelope::acknowledged`). Deliberate exceptions on hot paths (the `merge_*` reconciliation kernel, `values_deep_equal`, `from_entries`) carry a `HOT-PATH (imperative by design)` comment with the reason. See [`docs/FUNCTIONAL-STYLE.md`](./docs/FUNCTIONAL-STYLE.md).

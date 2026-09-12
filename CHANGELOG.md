@@ -3,6 +3,25 @@
 All notable changes to `syncer-rs`. Versions follow the repository convention
 in `AGENTS.md`: while the crate is `0.x`, a breaking change takes a minor bump.
 
+## Unreleased
+
+### Added
+
+- Value primitives on `VersionVector`: `incremented`, `observed`, and `joined`
+  return a new vector (plus the assigned counter / change flag) without
+  touching the input. `CausalEnvelope::acknowledged` returns the joined
+  checkpoint as a value.
+- `docs/FUNCTIONAL-STYLE.md`: the fleet functional-style rule and the
+  `HOT-PATH (imperative by design)` comment contract used in the sources.
+
+### Changed
+
+- `CausalEnvelope::upsert` / `delete` / `acknowledge_into` and the
+  `functional` helpers are now built on the value primitives; the in-place
+  forms assign the computed vector once. A join that would exceed
+  `MAX_CAUSAL_REPLICAS` therefore leaves the checkpoint untouched instead of
+  partially merged. Signatures, wire shapes, and the C ABI are unchanged.
+
 ## 0.4.0
 
 ### Added
