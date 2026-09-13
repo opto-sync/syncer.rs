@@ -1,0 +1,99 @@
+name: TypeSpec and JSON Schema peer-authority parity
+
+# DEN-3959 / ORESoftware/.github#36.
+# schema/merge-options.schema.json (Draft 2020-12, embedded by src/schema.rs as
+# MERGE_OPTIONS_JSON_SCHEMA) and contracts/merge-options/main.tsp are
+# independently authored peer authorities for the language-neutral merge-options
+# boundary shared by Rust, C ABI, WebAssembly and JSON callers.
+# The TypeSpec-generated JSON Schema is comparison evidence only. Neither
+# authority is regenerated from the other. Unexplained drift exits 2
+# (stopped_for_evaluation) and blocks promotion; execution failure exits 3.
+# contracts/merge-options/tjsv-mapping.json only bridges the authored root
+# declaration name (its title) to the TypeSpec model name.
+
+on:
+  pull_request:
+    paths:
+      - "schema/merge-options.schema.json"
+      - "contracts/merge-options/**"
+      - ".github/workflows/typespec-json-schema-peer-authority.yml"
+  push:
+    branches: [main, dev]
+    paths:
+      - "schema/merge-options.schema.json"
+      - "contracts/merge-options/**"
+      - ".github/workflows/typespec-json-schema-peer-authority.yml"
+  schedule:
+    - cron: "41 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: schema-peer-authority-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out exact head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Verify checked-out revision
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+
+      # TJSV declares engines.node >=22.9; do not depend on the runner image default.
+      - name: Set up the tested Node runtime
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.16.0
+
+      # Both TJSV references below use the same reviewed immutable validator commit.
+      - name: Generate Schema B and compare both peer authorities
+        uses: ORESoftware/typespec-json-schema-validator@eac61635922c244c7a37829c63d0966de44ff800
+        with:
+          typespec: contracts/merge-options/main.tsp
+          schema: schema/merge-options.schema.json
+          mapping: contracts/merge-options/tjsv-mapping.json
+          report: .typespec-json-schema-validator/report.json
+          contract_ir: .typespec-json-schema-validator/contract-ir.json
+          output_dir: .typespec-json-schema-validator/generated
+          max_probes: "64"
+
+      - name: Require current evidence and canonical consumer-admission refusals
+        uses: ORESoftware/typespec-json-schema-validator/actions/test-consumer-admission@eac61635922c244c7a37829c63d0966de44ff800
+        with:
+          contract_ir: .typespec-json-schema-validator/contract-ir.json
+          report: .typespec-json-schema-validator/report.json
+          typespec: contracts/merge-options/main.tsp
+          schema: schema/merge-options.schema.json
+          generated_schema: .typespec-json-schema-validator/generated/typespec.generated.schema.json
+          expected_declarations: '["OptoSync.Syncer.MergeOptions"]'
+
+      - name: Verify authored authorities were not modified
+        if: ${{ always() }}
+        shell: bash
+        run: git diff --exit-code -- schema/merge-options.schema.json contracts/merge-options/
+
+      # Diagnostic transport is intentionally weaker than semantic admission.
+      - name: Retain diagnostic receipt, IR and comparison witness
+        if: ${{ always() }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: schema-peer-authority-${{ github.event.repository.name }}-${{ github.run_id }}
+          path: .typespec-json-schema-validator/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 30

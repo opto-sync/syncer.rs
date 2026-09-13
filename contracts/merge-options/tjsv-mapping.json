@@ -1,0 +1,15 @@
+{
+  "schema": "ores.typespec-json-schema-validator.mapping/v1",
+  "declarations": [
+    {
+      "typespec": "OptoSync.Syncer.MergeOptions",
+      "generated": "MergeOptions",
+      "authored": "opto-sync merge options"
+    }
+  ],
+  "ignore": {
+    "typespec": [],
+    "generated": [],
+    "authored": []
+  }
+}
