@@ -50,3 +50,6 @@ temp/
 /env/enc/*
 !/env/enc/dev.env.enc
 !/env/enc/prod.env.enc
+
+# build output (DEN-3945 conformance): never tracked
+target/
