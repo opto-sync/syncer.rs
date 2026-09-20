@@ -53,15 +53,10 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
 
-      # TJSV declares engines.node >=22.9; do not depend on the runner image default.
-      - name: Set up the tested Node runtime
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 22.16.0
-
+      # The validator action owns and audits its lockfile-pinned Node/TypeSpec toolchain.
       # Both TJSV references below use the same reviewed immutable validator commit.
       - name: Generate Schema B and compare both peer authorities
-        uses: ORESoftware/typespec-json-schema-validator@eac61635922c244c7a37829c63d0966de44ff800
+        uses: ORESoftware/typespec-json-schema-validator@03aa2c1e44c6745c1abca9c1399a942cc315a8d8
         with:
           typespec: contracts/merge-options/main.tsp
           schema: schema/merge-options.schema.json
@@ -72,7 +67,7 @@ jobs:
           max_probes: "64"
 
       - name: Require current evidence and canonical consumer-admission refusals
-        uses: ORESoftware/typespec-json-schema-validator/actions/test-consumer-admission@eac61635922c244c7a37829c63d0966de44ff800
+        uses: ORESoftware/typespec-json-schema-validator/actions/test-consumer-admission@03aa2c1e44c6745c1abca9c1399a942cc315a8d8
         with:
           contract_ir: .typespec-json-schema-validator/contract-ir.json
           report: .typespec-json-schema-validator/report.json
