@@ -1,7 +1,7 @@
 [package]
 org = "opto-sync"
 name = "syncer-rs"
-version = "0.3.0"
+version = "0.4.0"
 description = "Rust-native JSON reconciliation core for native, C ABI, static library, and WebAssembly callers"
 license = "MIT"
 keywords = ["sync", "json", "merge", "ffi", "wasm"]
