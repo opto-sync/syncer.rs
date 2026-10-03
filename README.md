@@ -90,6 +90,21 @@ let (envelope, snapshot) = write.into_persistable();
 let ack = receive_and_ack(&envelope, &checkpoint)?;
 ```
 
+Causal envelopes use a separate typed-error surface (ABI additive, crate 0.4.0):
+
+```c
+int code = syncer_rs_causal_validate(envelope_json, &error);
+int disposition;
+syncer_rs_causal_disposition(envelope_json, checkpoint_json, &disposition, &error);
+char *joined = NULL;
+syncer_rs_causal_acknowledge(envelope_json, checkpoint_json, &joined, &error);
+```
+
+`0` is success. Non-zero codes are `SYNCER_RS_ERR_*` in `include/syncer_rs.h`.
+`syncer.rs` is merge + causal ordering only. Desktop lifecycle and SQLite
+checkpoints stay in `opto-sync-clients/desktop-rust`. See
+`examples/desktop_optimistic_cycle.rs`.
+
 The release library is:
 
 - macOS: `target/release/libsyncer_rs.dylib`

@@ -1,10 +1,11 @@
 use std::ffi::{CStr, CString};
 
 use syncer_rs::ffi::{
+    SYNCER_RS_DISP_APPLY, SYNCER_RS_ERR_JSON, SYNCER_RS_ERR_NULL, SYNCER_RS_OK,
     SYNCER_RS_OPT_ERR_CONFLICT, SYNCER_RS_OPT_ERR_MISSING_REPLICA, SYNCER_RS_OPT_ERR_STALE_VECTOR,
-    SYNCER_RS_OPT_OK, SyncerRsOptions, syncer_rs_free, syncer_rs_merge_json,
-    syncer_rs_merge_json_ex, syncer_rs_optimistic_receive, syncer_rs_optimistic_record,
-    syncer_rs_version,
+    SYNCER_RS_OPT_OK, SyncerRsOptions, syncer_rs_causal_acknowledge, syncer_rs_causal_disposition,
+    syncer_rs_causal_validate, syncer_rs_free, syncer_rs_merge_json, syncer_rs_merge_json_ex,
+    syncer_rs_optimistic_receive, syncer_rs_optimistic_record, syncer_rs_version,
 };
 use syncer_rs::{CausalEnvelope, VersionRelation, VersionVector};
 
@@ -182,6 +183,48 @@ fn ffi_optimistic_typed_errors_do_not_ack_conflicts() {
 }
 
 #[test]
+fn ffi_optimistic_calls_clear_outputs_before_failure() {
+    let stale_envelope = CString::new("stale envelope").unwrap().into_raw();
+    let stale_snapshot = CString::new("stale snapshot").unwrap().into_raw();
+    let mut envelope_out = stale_envelope;
+    let mut snapshot_out = stale_snapshot;
+
+    // SAFETY: Both output slots are writable; the null required input must
+    // fail closed after clearing caller-visible output pointers.
+    let status = unsafe {
+        syncer_rs_optimistic_record(
+            std::ptr::null(),
+            std::ptr::null(),
+            std::ptr::null(),
+            std::ptr::null(),
+            std::ptr::null(),
+            &mut envelope_out,
+            &mut snapshot_out,
+        )
+    };
+    assert_ne!(status, SYNCER_RS_OPT_OK);
+    assert!(envelope_out.is_null());
+    assert!(snapshot_out.is_null());
+
+    let stale_checkpoint = CString::new("stale checkpoint").unwrap().into_raw();
+    let mut checkpoint_out = stale_checkpoint;
+    // SAFETY: Output is writable; null inputs must fail closed.
+    let status = unsafe {
+        syncer_rs_optimistic_receive(std::ptr::null(), std::ptr::null(), &mut checkpoint_out)
+    };
+    assert_ne!(status, SYNCER_RS_OPT_OK);
+    assert!(checkpoint_out.is_null());
+
+    // SAFETY: Clearing the slots does not transfer ownership of the deliberately
+    // stale allocations to the library, so this test reclaims each exactly once.
+    unsafe {
+        drop(CString::from_raw(stale_envelope));
+        drop(CString::from_raw(stale_snapshot));
+        drop(CString::from_raw(stale_checkpoint));
+    }
+}
+
+#[test]
 fn ffi_one_sided_merge_validates_and_normalizes() {
     let input = CString::new(r#"{ "a": 1 }"#).unwrap();
     // SAFETY: One input may be null and the other is a valid C string.
@@ -195,4 +238,109 @@ fn ffi_one_sided_merge_validates_and_normalizes() {
     );
     // SAFETY: The pointer came from this library and is freed once.
     unsafe { syncer_rs_free(result) };
+}
+
+fn sample_envelope_and_checkpoint() -> (CString, CString) {
+    let mut clock =
+        syncer_rs::VersionVector::from_entries([("phone".into(), 2)]).expect("checkpoint vector");
+    let envelope = syncer_rs::CausalEnvelope::upsert(
+        "notes/42",
+        "mutation-3",
+        "desktop",
+        &mut clock,
+        serde_json::json!({"text": "ok"}),
+    )
+    .expect("envelope");
+    let envelope_json = CString::new(serde_json::to_string(&envelope).expect("json")).expect("c");
+    let checkpoint = CString::new(r#"{"phone":2}"#).expect("checkpoint");
+    (envelope_json, checkpoint)
+}
+
+#[test]
+fn ffi_causal_validate_disposition_and_acknowledge() {
+    let (envelope, checkpoint) = sample_envelope_and_checkpoint();
+    let stale_error = CString::new("stale error").unwrap().into_raw();
+    let mut error = stale_error;
+    // SAFETY: Strings are valid and error_out is writable.
+    let status = unsafe { syncer_rs_causal_validate(envelope.as_ptr(), &mut error) };
+    assert_eq!(status, SYNCER_RS_OK);
+    assert!(error.is_null());
+    // SAFETY: The API cleared the output slot without taking ownership of the
+    // caller's deliberately stale test allocation.
+    drop(unsafe { CString::from_raw(stale_error) });
+
+    let mut disposition = -1;
+    // SAFETY: Pointers remain valid for the call.
+    let status = unsafe {
+        syncer_rs_causal_disposition(
+            envelope.as_ptr(),
+            checkpoint.as_ptr(),
+            &mut disposition,
+            &mut error,
+        )
+    };
+    assert_eq!(status, SYNCER_RS_OK);
+    assert_eq!(disposition, SYNCER_RS_DISP_APPLY);
+
+    let mut joined: *mut std::ffi::c_char = std::ptr::null_mut();
+    // SAFETY: Outputs are writable and inputs are valid C strings.
+    let status = unsafe {
+        syncer_rs_causal_acknowledge(
+            envelope.as_ptr(),
+            checkpoint.as_ptr(),
+            &mut joined,
+            &mut error,
+        )
+    };
+    assert_eq!(status, SYNCER_RS_OK);
+    assert!(!joined.is_null());
+    // SAFETY: joined came from the library.
+    let text = unsafe { CStr::from_ptr(joined) }.to_str().expect("utf8");
+    let value: serde_json::Value = serde_json::from_str(text).expect("json");
+    assert_eq!(value["phone"], 2);
+    assert_eq!(value["desktop"], 1);
+    unsafe { syncer_rs_free(joined) };
+}
+
+#[test]
+fn ffi_causal_rejects_null_and_malformed_json() {
+    let mut error: *mut std::ffi::c_char = std::ptr::null_mut();
+    // SAFETY: A null envelope must fail closed with a typed code.
+    let status = unsafe { syncer_rs_causal_validate(std::ptr::null(), &mut error) };
+    assert_eq!(status, SYNCER_RS_ERR_NULL);
+
+    let bad = CString::new("{").unwrap();
+    // SAFETY: Input is a valid C string of invalid JSON.
+    let status = unsafe { syncer_rs_causal_validate(bad.as_ptr(), &mut error) };
+    assert_eq!(status, SYNCER_RS_ERR_JSON);
+    if !error.is_null() {
+        unsafe { syncer_rs_free(error) };
+    }
+}
+
+#[test]
+fn ffi_causal_acknowledge_clears_checkpoint_output_before_failure() {
+    let bad = CString::new("{").unwrap();
+    let checkpoint = CString::new("{}").unwrap();
+    let stale_checkpoint = CString::new("stale checkpoint").unwrap().into_raw();
+    let mut checkpoint_out = stale_checkpoint;
+    let mut error: *mut std::ffi::c_char = std::ptr::null_mut();
+
+    // SAFETY: Inputs are valid C strings and both output slots are writable.
+    let status = unsafe {
+        syncer_rs_causal_acknowledge(
+            bad.as_ptr(),
+            checkpoint.as_ptr(),
+            &mut checkpoint_out,
+            &mut error,
+        )
+    };
+    assert_eq!(status, SYNCER_RS_ERR_JSON);
+    assert!(checkpoint_out.is_null());
+    // SAFETY: The API cleared the output slot without taking ownership of the
+    // caller's deliberately stale test allocation.
+    drop(unsafe { CString::from_raw(stale_checkpoint) });
+    if !error.is_null() {
+        unsafe { syncer_rs_free(error) };
+    }
 }

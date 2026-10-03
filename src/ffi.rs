@@ -5,8 +5,9 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::ptr;
 
 use crate::{
-    ArrayMergeStrategy, CausalEnvelope, MergeError, MergeOptions, OptimisticError, VERSION,
-    VersionVector, merge_optional_json, receive_and_ack, record_upsert,
+    ArrayMergeStrategy, CausalDisposition, CausalEnvelope, CausalEnvelopeError, MergeError,
+    MergeOptions, OptimisticError, VERSION, VersionVector, VersionVectorError, merge_optional_json,
+    receive_and_ack, record_upsert,
 };
 
 /// Success from an optimistic FFI call.
@@ -21,6 +22,36 @@ pub const SYNCER_RS_OPT_ERR_STALE_VECTOR: i32 = 3;
 pub const SYNCER_RS_OPT_ERR_INVALID: i32 = 4;
 /// The Rust side panicked; treat as a failed call.
 pub const SYNCER_RS_OPT_ERR_PANIC: i32 = 5;
+
+/// Success from a typed causal FFI call.
+pub const SYNCER_RS_OK: i32 = 0;
+/// A required pointer was null.
+pub const SYNCER_RS_ERR_NULL: i32 = 1;
+/// A C string was not valid UTF-8.
+pub const SYNCER_RS_ERR_UTF8: i32 = 2;
+/// The JSON payload was malformed or the wrong shape.
+pub const SYNCER_RS_ERR_JSON: i32 = 3;
+/// The envelope schema version is unsupported.
+pub const SYNCER_RS_ERR_SCHEMA: i32 = 4;
+/// The document id failed validation.
+pub const SYNCER_RS_ERR_DOCUMENT: i32 = 5;
+/// The mutation id failed validation.
+pub const SYNCER_RS_ERR_MUTATION: i32 = 6;
+/// The actor replica has no positive counter.
+pub const SYNCER_RS_ERR_ACTOR: i32 = 7;
+/// Version-vector validation or merge failed.
+pub const SYNCER_RS_ERR_VECTOR: i32 = 8;
+/// The Rust side panicked; treat as a failed call.
+pub const SYNCER_RS_ERR_PANIC: i32 = 9;
+
+/// [`CausalDisposition::Duplicate`]
+pub const SYNCER_RS_DISP_DUPLICATE: i32 = 0;
+/// [`CausalDisposition::Stale`]
+pub const SYNCER_RS_DISP_STALE: i32 = 1;
+/// [`CausalDisposition::Apply`]
+pub const SYNCER_RS_DISP_APPLY: i32 = 2;
+/// [`CausalDisposition::ResolveConcurrent`]
+pub const SYNCER_RS_DISP_CONCURRENT: i32 = 3;
 
 /// Current layout version of [`SyncerRsOptions`].
 pub const SYNCER_RS_ABI_VERSION: u32 = 2;
@@ -171,8 +202,8 @@ unsafe fn options_from_ffi(pointer: *const SyncerRsOptions) -> Result<MergeOptio
 /// # Safety
 ///
 /// `pointer` must be null or a live pointer returned by a `syncer_rs_merge_*`
-/// or `syncer_rs_optimistic_*` function from this exact library instance. It
-/// must not have been freed previously.
+/// `syncer_rs_optimistic_*`, or `syncer_rs_causal_*` function from this exact
+/// library instance. It must not have been freed previously.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn syncer_rs_free(pointer: *mut c_char) {
     if !pointer.is_null() {
@@ -213,6 +244,18 @@ fn write_out(out: *mut *mut c_char, message: &str) -> Result<(), i32> {
     Ok(())
 }
 
+fn write_cstring(out: *mut *mut c_char, message: &str) -> Result<(), i32> {
+    if out.is_null() {
+        return Ok(());
+    }
+    let encoded = CString::new(message).map_err(|_| SYNCER_RS_ERR_JSON)?;
+    // SAFETY: `out` is a writable pointer supplied by the caller.
+    unsafe {
+        *out = encoded.into_raw();
+    }
+    Ok(())
+}
+
 fn optimistic_code(error: &OptimisticError) -> i32 {
     match error {
         OptimisticError::Conflict { .. } => SYNCER_RS_OPT_ERR_CONFLICT,
@@ -220,6 +263,16 @@ fn optimistic_code(error: &OptimisticError) -> i32 {
         OptimisticError::StaleVector => SYNCER_RS_OPT_ERR_STALE_VECTOR,
         OptimisticError::Envelope(_) | OptimisticError::VersionVector(_) => {
             SYNCER_RS_OPT_ERR_INVALID
+        }
+    }
+}
+
+fn clear_cstring_output(out: *mut *mut c_char) {
+    if !out.is_null() {
+        // SAFETY: Each public FFI function requires a non-null output pointer
+        // to reference writable storage for one char pointer.
+        unsafe {
+            *out = ptr::null_mut();
         }
     }
 }
@@ -251,7 +304,12 @@ pub unsafe extern "C" fn syncer_rs_optimistic_record(
     envelope_out: *mut *mut c_char,
     snapshot_out: *mut *mut c_char,
 ) -> i32 {
+    clear_cstring_output(envelope_out);
+    clear_cstring_output(snapshot_out);
     catch_optimistic(|| {
+        if envelope_out.is_null() || snapshot_out.is_null() || envelope_out == snapshot_out {
+            return Err(SYNCER_RS_OPT_ERR_INVALID);
+        }
         let document_id = required_utf8(document_id)?;
         let mutation_id = required_utf8(mutation_id)?;
         let replica_id = required_utf8(replica_id)?;
@@ -299,6 +357,7 @@ pub unsafe extern "C" fn syncer_rs_optimistic_receive(
     checkpoint_json: *const c_char,
     checkpoint_out: *mut *mut c_char,
 ) -> i32 {
+    clear_cstring_output(checkpoint_out);
     catch_optimistic(|| {
         let envelope_json = required_utf8(envelope_json)?;
         let checkpoint_json = required_utf8(checkpoint_json)?;
@@ -312,5 +371,171 @@ pub unsafe extern "C" fn syncer_rs_optimistic_receive(
             serde_json::to_string(ack.checkpoint()).map_err(|_| SYNCER_RS_OPT_ERR_INVALID)?;
         write_out(checkpoint_out, &encoded)?;
         Ok(SYNCER_RS_OPT_OK)
+    })
+}
+
+fn required_string(pointer: *const c_char) -> Result<String, i32> {
+    if pointer.is_null() {
+        return Err(SYNCER_RS_ERR_NULL);
+    }
+    // SAFETY: The caller promises a readable NUL-terminated C string.
+    unsafe { CStr::from_ptr(pointer) }
+        .to_str()
+        .map(str::to_owned)
+        .map_err(|_| SYNCER_RS_ERR_UTF8)
+}
+
+fn causal_error_code(error: CausalEnvelopeError) -> i32 {
+    match error {
+        CausalEnvelopeError::UnsupportedSchema(_) => SYNCER_RS_ERR_SCHEMA,
+        CausalEnvelopeError::InvalidDocumentId => SYNCER_RS_ERR_DOCUMENT,
+        CausalEnvelopeError::InvalidMutationId => SYNCER_RS_ERR_MUTATION,
+        CausalEnvelopeError::MissingActorCounter(_) => SYNCER_RS_ERR_ACTOR,
+        CausalEnvelopeError::VersionVector(_) => SYNCER_RS_ERR_VECTOR,
+    }
+}
+
+fn vector_error_code(_error: VersionVectorError) -> i32 {
+    SYNCER_RS_ERR_VECTOR
+}
+
+fn parse_envelope(json: &str) -> Result<CausalEnvelope<serde_json::Value>, i32> {
+    let envelope: CausalEnvelope<serde_json::Value> =
+        serde_json::from_str(json).map_err(|_| SYNCER_RS_ERR_JSON)?;
+    envelope.validate().map_err(causal_error_code)?;
+    Ok(envelope)
+}
+
+fn parse_checkpoint(json: &str) -> Result<VersionVector, i32> {
+    serde_json::from_str(json).map_err(|_| SYNCER_RS_ERR_JSON)
+}
+
+fn disposition_code(disposition: CausalDisposition) -> i32 {
+    match disposition {
+        CausalDisposition::Duplicate => SYNCER_RS_DISP_DUPLICATE,
+        CausalDisposition::Stale => SYNCER_RS_DISP_STALE,
+        CausalDisposition::Apply => SYNCER_RS_DISP_APPLY,
+        CausalDisposition::ResolveConcurrent => SYNCER_RS_DISP_CONCURRENT,
+    }
+}
+
+fn catch_causal(work: impl FnOnce() -> Result<i32, i32>) -> i32 {
+    catch_unwind(AssertUnwindSafe(work))
+        .unwrap_or(Ok(SYNCER_RS_ERR_PANIC))
+        .unwrap_or_else(|code| code)
+}
+
+/// Validates a causal envelope JSON string.
+///
+/// Returns [`SYNCER_RS_OK`] on success. On failure, writes a diagnostic to
+/// `error_out` when that pointer is non-null and returns a typed error code.
+/// Release `error_out` with [`syncer_rs_free`].
+///
+/// # Safety
+///
+/// `envelope_json` must be a readable NUL-terminated C string. `error_out`,
+/// when non-null, must point to writable storage for one `char *`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn syncer_rs_causal_validate(
+    envelope_json: *const c_char,
+    error_out: *mut *mut c_char,
+) -> i32 {
+    clear_cstring_output(error_out);
+    catch_causal(|| {
+        let json = required_string(envelope_json)?;
+        match parse_envelope(&json) {
+            Ok(_) => Ok(SYNCER_RS_OK),
+            Err(code) => {
+                let _ = write_cstring(error_out, "causal envelope failed validation");
+                Err(code)
+            }
+        }
+    })
+}
+
+/// Classifies `envelope_json` against a durable checkpoint JSON object.
+///
+/// On success writes a [`SYNCER_RS_DISP_*`] code to `disposition_out`.
+///
+/// # Safety
+///
+/// All non-null C strings must be readable and NUL-terminated. Output pointers
+/// must be writable for the duration of the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn syncer_rs_causal_disposition(
+    envelope_json: *const c_char,
+    checkpoint_json: *const c_char,
+    disposition_out: *mut i32,
+    error_out: *mut *mut c_char,
+) -> i32 {
+    clear_cstring_output(error_out);
+    catch_causal(|| {
+        if disposition_out.is_null() {
+            return Err(SYNCER_RS_ERR_NULL);
+        }
+        let envelope = match parse_envelope(&required_string(envelope_json)?) {
+            Ok(envelope) => envelope,
+            Err(code) => {
+                let _ = write_cstring(error_out, "causal envelope failed validation");
+                return Err(code);
+            }
+        };
+        let checkpoint = match parse_checkpoint(&required_string(checkpoint_json)?) {
+            Ok(checkpoint) => checkpoint,
+            Err(code) => {
+                let _ = write_cstring(error_out, "causal checkpoint failed validation");
+                return Err(code);
+            }
+        };
+        // SAFETY: Caller supplied a writable i32.
+        unsafe {
+            *disposition_out = disposition_code(envelope.disposition_against(&checkpoint));
+        }
+        Ok(SYNCER_RS_OK)
+    })
+}
+
+/// Merges an accepted envelope's clock into `checkpoint_json`.
+///
+/// Writes the joined checkpoint JSON to `checkpoint_out`. Release it with
+/// [`syncer_rs_free`].
+///
+/// # Safety
+///
+/// Same pointer contract as [`syncer_rs_causal_disposition`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn syncer_rs_causal_acknowledge(
+    envelope_json: *const c_char,
+    checkpoint_json: *const c_char,
+    checkpoint_out: *mut *mut c_char,
+    error_out: *mut *mut c_char,
+) -> i32 {
+    clear_cstring_output(checkpoint_out);
+    clear_cstring_output(error_out);
+    catch_causal(|| {
+        if checkpoint_out.is_null() {
+            return Err(SYNCER_RS_ERR_NULL);
+        }
+        let envelope = match parse_envelope(&required_string(envelope_json)?) {
+            Ok(envelope) => envelope,
+            Err(code) => {
+                let _ = write_cstring(error_out, "causal envelope failed validation");
+                return Err(code);
+            }
+        };
+        let mut checkpoint = match parse_checkpoint(&required_string(checkpoint_json)?) {
+            Ok(checkpoint) => checkpoint,
+            Err(code) => {
+                let _ = write_cstring(error_out, "causal checkpoint failed validation");
+                return Err(code);
+            }
+        };
+        if let Err(error) = envelope.acknowledge_into(&mut checkpoint) {
+            let _ = write_cstring(error_out, &error.to_string());
+            return Err(vector_error_code(error));
+        }
+        let encoded = serde_json::to_string(&checkpoint).map_err(|_| SYNCER_RS_ERR_JSON)?;
+        write_cstring(checkpoint_out, &encoded)?;
+        Ok(SYNCER_RS_OK)
     })
 }
