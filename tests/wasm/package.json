@@ -6,9 +6,19 @@
   "scripts": {
     "test:node": "node run-node.mjs",
     "test:browser": "playwright test --config playwright.config.mjs",
-    "test": "npm run test:node && npm run test:browser"
+    "test": "npm run test:node && npm run test:browser",
+    "lint:ores": "if [ -f ../../.ores-lint/lint.sh ]; then sh ../../.ores-lint/lint.sh; else echo 'ores-lint not installed'; fi",
+    "prepublishOnly": "npm run lint:ores"
   },
   "devDependencies": {
     "@playwright/test": "1.56.1"
+  },
+  "oresLint": {
+    "note": "Declared, not installed. ores-lint resolves these from a global install - see .ores-lint/README.md",
+    "requires": {
+      "eslint": ">=9",
+      "typescript-eslint": ">=8 (optional; without it .ts files are skipped)"
+    },
+    "install": "npm i -g eslint typescript-eslint"
   }
 }
