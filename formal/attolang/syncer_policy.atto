@@ -1,0 +1,12 @@
+// Pure reference guard. The Rust/FFI/WebAssembly behavior is not proven here.
+define module syncer_policy as
+  pub fnc may_ack(int observed_version, int local_version,
+                  int durable_checkpoint): bool {
+    return observed_version >= durable_checkpoint &&
+      observed_version <= local_version;
+  }
+  pub fnc self_check(): bool {
+    return may_ack(2,3,1) && may_ack(0,0,0) &&
+      !may_ack(4,3,1) && !may_ack(0,3,1);
+  }
+end
