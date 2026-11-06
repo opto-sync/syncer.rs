@@ -1,11 +1,6 @@
 //! Finite, production-backed causal clock refinement over delivery orders.
 //! Pure Rust integration tests; no Wasm guest/browser execution is claimed.
-use syncer_rs::causal::{
-    VersionRelation,
-    VersionVector,
-    VersionVectorError,
-    MAX_CAUSAL_REPLICAS,
-};
+use syncer_rs::causal::{MAX_CAUSAL_REPLICAS, VersionRelation, VersionVector, VersionVectorError};
 
 const REPLICAS: [&str; 3] = ["alpha", "beta", "gamma"];
 
@@ -23,11 +18,7 @@ fn vector(counters: [u64; 3]) -> VersionVector {
 
 fn all_vectors() -> Vec<VersionVector> {
     (0_u64..3)
-        .flat_map(|a| {
-            (0_u64..3).flat_map(move |b| {
-                (0_u64..3).map(move |c| vector([a, b, c]))
-            })
-        })
+        .flat_map(|a| (0_u64..3).flat_map(move |b| (0_u64..3).map(move |c| vector([a, b, c]))))
         .collect()
 }
 
@@ -106,10 +97,9 @@ fn duplicated_out_of_order_observations_never_rollback_or_mutate_prior_values() 
 
 #[test]
 fn overflow_and_capacity_errors_do_not_partially_modify_owned_vectors() {
-    let mut full = VersionVector::from_entries(
-        (0..MAX_CAUSAL_REPLICAS).map(|i| (format!("replica_{i}"), 1)),
-    )
-    .unwrap();
+    let mut full =
+        VersionVector::from_entries((0..MAX_CAUSAL_REPLICAS).map(|i| (format!("replica_{i}"), 1)))
+            .unwrap();
     let before = full.clone();
     assert!(matches!(
         full.observe("outside", 1),
@@ -123,8 +113,7 @@ fn overflow_and_capacity_errors_do_not_partially_modify_owned_vectors() {
     ));
     assert_eq!(full, before);
 
-    let mut overflow = VersionVector::from_entries([("alpha".to_owned(), u64::MAX)])
-        .unwrap();
+    let mut overflow = VersionVector::from_entries([("alpha".to_owned(), u64::MAX)]).unwrap();
     let unchanged = overflow.clone();
     assert!(matches!(
         overflow.increment("alpha"),
@@ -138,8 +127,15 @@ fn negative_control_rejects_minimum_as_a_false_merge_algorithm() {
     let a = vector([2, 0, 1]);
     let b = vector([0, 2, 1]);
     let actual = a.joined(&b).unwrap().0;
-    let broken = vector([a.get("alpha").min(b.get("alpha")), a.get("beta").min(b.get("beta")), 1]);
-    assert_ne!(actual, broken, "negative control did not detect incorrect min-merge");
+    let broken = vector([
+        a.get("alpha").min(b.get("alpha")),
+        a.get("beta").min(b.get("beta")),
+        1,
+    ]);
+    assert_ne!(
+        actual, broken,
+        "negative control did not detect incorrect min-merge"
+    );
     assert!(!broken.dominates(&a));
     assert!(!broken.dominates(&b));
 }
