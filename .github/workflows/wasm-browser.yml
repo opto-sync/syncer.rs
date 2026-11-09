@@ -31,7 +31,9 @@ env:
 jobs:
   conformance:
     name: node + chromium
-    runs-on: ubuntu-latest
+    # Playwright 1.56.1 cannot install Chromium on the rolling ubuntu-26.04 image.
+    # Keep the browser guest test mandatory by pinning the supported OS image.
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - name: Checkout
