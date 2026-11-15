@@ -84,7 +84,10 @@ fn atto_source_carries_expected_policy_predicates_not_runtime_claims() {
         "a0 <= b0 && a1 <= b1",
         "!clock_before(b0,b1,a0,a1)",
     ] {
-        assert!(candidate.contains(anchor), "missing .atto source anchor: {anchor}");
+        assert!(
+            candidate.contains(anchor),
+            "missing .atto source anchor: {anchor}"
+        );
     }
 }
 
