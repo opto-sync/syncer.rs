@@ -24,15 +24,17 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - name: Exhaustive two-replica finite policy and proof inputs
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+      - name: Exhaustive two-replica finite Rust oracle and exact-head proof inputs
         shell: bash
         env:
           EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
-          python3 scripts/check_attolang_causal_policy.py
-          sha256sum src/causal_policy.atto scripts/check_attolang_causal_policy.py
+          cargo test --locked --test attolang_causal_policy
+          sha256sum src/causal_policy.atto tests/attolang_causal_policy.rs
 
   causal-kani:
     name: Kani causal-ordering proofs

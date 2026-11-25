@@ -72,11 +72,13 @@ The next useful proof slices are:
 ## AttoLang causal-order reference
 
 `src/causal_policy.atto` describes pure two-replica predicates for
-before/equal/concurrent. `scripts/check_attolang_causal_policy.py` independently
+before/equal/concurrent. `tests/attolang_causal_policy.rs` independently
 enumerates 256 bounded clock pairs (counter values 0–3), checks ordering
 duality, exclusive classification, join upper bounds, idempotence,
-commutativity and non-vacuous concurrent cases. The formal-methods workflow
-runs this under exact triggering head and prints SHA-256 input digests.
+commutativity and non-vacuous concurrent cases. The formal-methods workflow runs `cargo test --locked --test attolang_causal_policy`
+under exact triggering head and prints SHA-256 input digests. This is an
+independent bounded Rust oracle; a source anchor alone cannot validate the
+compiled guest or claim causal engine parity.
 
 This is a **finite abstract policy check** with a text-level AttoLang source
 anchor, not AttoLang compiler execution or an implementation-trace replay. Kani
