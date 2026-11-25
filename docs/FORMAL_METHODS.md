@@ -68,3 +68,19 @@ The next useful proof slices are:
    this crate;
 4. bounded proofs for timestamp selector and array-identity helpers where the
    production function can be kept allocation-free.
+
+## AttoLang causal-order reference
+
+`src/causal_policy.atto` describes pure two-replica predicates for
+before/equal/concurrent. `tests/attolang_causal_policy.rs` independently
+enumerates 256 bounded clock pairs (counter values 0–3), checks ordering
+duality, exclusive classification, join upper bounds, idempotence,
+commutativity and non-vacuous concurrent cases. The formal-methods workflow runs `cargo test --locked --test attolang_causal_policy`
+under exact triggering head and prints SHA-256 input digests. This is an
+independent bounded Rust oracle; a source anchor alone cannot validate the
+compiled guest or claim causal engine parity.
+
+This is a **finite abstract policy check** with a text-level AttoLang source
+anchor, not AttoLang compiler execution or an implementation-trace replay. Kani
+remains the proof for full `u64` scalar domains; Rust/TS/Dart behavioral
+equivalence and native backend evidence remain separate gates.
